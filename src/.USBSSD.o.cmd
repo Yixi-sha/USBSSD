@@ -1,1 +1,0 @@
-cmd_/home/ccgo/work/USBSSD/baseline/src/USBSSD.o := ld -m elf_x86_64    -r -o /home/ccgo/work/USBSSD/baseline/src/USBSSD.o /home/ccgo/work/USBSSD/baseline/src/main.o /home/ccgo/work/USBSSD/baseline/src/request.o /home/ccgo/work/USBSSD/baseline/src/allocator.o /home/ccgo/work/USBSSD/baseline/src/sub_request.o
