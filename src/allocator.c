@@ -37,11 +37,19 @@ void *allocate_USBSSD(Allocator_USBSSD* a){
 
 void free_USBSSD(Allocator_USBSSD* a, void* addr){
     Inter_Allocator_USBSSD *ptr = addr + a->offset;
+    Inter_Allocator_USBSSD *iter = a->usedHead;
     if(!ptr || !a){
         return;
     }
 
     mutex_lock(&(a->usedMutex));
+    while(iter != ptr && iter->next){
+        iter = iter->next;
+    }
+    if(!iter){
+        return;
+    }
+
     if(ptr == a->usedHead){
         a->usedHead = ptr->next;
         if(a->usedHead)

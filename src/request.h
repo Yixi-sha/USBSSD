@@ -2,16 +2,17 @@
 #define __REQUEST_USBSSD_H__
 
 #include <linux/blkdev.h>
+#include <linux/bio.h>
 #include "allocator.h"
 
 typedef struct Request_USBSSD_{
-    struct request *req;
+    struct bio *bio;
     unsigned int restDataCount;
 
     Inter_Allocator_USBSSD allocator;
 }Request_USBSSD;
 
-Request_USBSSD *allocate_Request_USBSSD(struct request *req);
+Request_USBSSD *allocate_Request_USBSSD(struct bio *bio);
 void free_Request_USBSSD(Request_USBSSD*);
 
 void init_Request_USBSSD(void);
