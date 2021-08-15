@@ -47,6 +47,7 @@ void free_USBSSD(Allocator_USBSSD* a, void* addr){
         iter = iter->next;
     }
     if(!iter){
+        mutex_unlock(&(a->usedMutex)); 
         return;
     }
 

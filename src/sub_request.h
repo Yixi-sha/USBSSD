@@ -7,7 +7,7 @@
 #include <linux/bio.h>
 
 #define READ_USBSSD 0
-#define WRITE_USBSSD 0
+#define WRITE_USBSSD 1
 
 #define SUB_PAGE_SIZE_USBSSD PAGE_SIZE // actual map granularity PAGE_SIZE
 #define NUM_DEST 2 // SUB_PAGE_SIZE_USBSSD = PAGE_SIZE, so NUM_DEST max is 2
@@ -34,7 +34,8 @@ typedef struct SubRequest_USBSSD_{
 SubRequest_USBSSD *allocate_SubRequest_USBSSD(Request_USBSSD *req, struct bio_vec *bvec, sector_t sector, unsigned char operation);
 void free_SubRequest_USBSSD(SubRequest_USBSSD*);
 
-void add_To_List(SubRequest_USBSSD*, SubRequest_USBSSD*);
+void add_To_List_SubRequest_USBSSD(SubRequest_USBSSD*, SubRequest_USBSSD*);
+void remove_From_List_SubRequest_USBSSD(SubRequest_USBSSD*);
 
 void init_SubRequest_USBSSD(void);
 void destory_SubRequest_USBSSD(void);

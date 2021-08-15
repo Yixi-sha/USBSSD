@@ -37,7 +37,7 @@ Request_USBSSD *allocate_Request_USBSSD(struct bio *bio){
         }
         sector += len >> SECTOR_SHIFT;
     }
-    add_To_List(head, tail);
+    add_To_List_SubRequest_USBSSD(head, tail);
     return ret;
 
 allocate_Request_USBSSD_err:
