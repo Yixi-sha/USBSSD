@@ -5,12 +5,17 @@
 #include "request.h"
 #include "allocator.h"
 #include <linux/bio.h>
+#include <linux/timer.h>
 
 #define READ_USBSSD 0
 #define WRITE_USBSSD 1
 
 #define SUB_PAGE_SIZE_USBSSD PAGE_SIZE // actual map granularity PAGE_SIZE
-#define NUM_DEST 2 // SUB_PAGE_SIZE_USBSSD = PAGE_SIZE, so NUM_DEST max is 2
+
+typedef struct SubPageBuf_USBSSD_{
+    unsigned char buf[SUB_PAGE_SIZE_USBSSD];
+    Inter_Allocator_USBSSD allocator;
+}SubPageBuf_USBSSD;
 
 typedef struct SubRequest_USBSSD_{
     Request_USBSSD *req;
@@ -21,9 +26,14 @@ typedef struct SubRequest_USBSSD_{
     int start; // for page of ssd
     int len;   // for page of ssd
 
-    /*for bvec callvack*/
     unsigned long offset; // for  offset of page in operatin system
     void *page;
+
+    unsigned long jiffies;
+    
+    void *update; // for write
+    int updateLen;
+    struct SubRequest_USBSSD_ *updateSub; // for read
 
     struct SubRequest_USBSSD_ *pre;
     struct SubRequest_USBSSD_ *next;
@@ -36,6 +46,8 @@ void free_SubRequest_USBSSD(SubRequest_USBSSD*);
 
 void add_To_List_SubRequest_USBSSD(SubRequest_USBSSD*, SubRequest_USBSSD*);
 void remove_From_List_SubRequest_USBSSD(SubRequest_USBSSD*);
+
+SubRequest_USBSSD *get_SubRequests_USBSSD(int chann, int chip, int operation);
 
 void init_SubRequest_USBSSD(void);
 void destory_SubRequest_USBSSD(void);

@@ -30,13 +30,19 @@ typedef struct Command_USBSSD_{
 #define VALID_HW_PAGE_STATE 1
 #define INVALID_HW_PAGE_STATE 2
 
-typedef struct Page_USBSSD_{
+typedef struct Subpage_USBSSD_{
     unsigned char state;
     unsigned long long lpn;
+}Subpage_USBSSD;
+
+typedef struct Page_USBSSD_{
+    unsigned char state; // if a subpage is valid, it is valid it is valid. 
+                        //if all subpage is free, it is valid it is free.
+                        //if all subpage is invalid, it is valid it is invalid.
+    Subpage_USBSSD* subpageInfos;
 }Page_USBSSD;
 
 typedef struct Block_USBSSD_{
-    unsigned long long allPageCount;
     unsigned long long freePageCount;
     unsigned long long validPageCount;
     unsigned long long invalidPageCount;
@@ -45,7 +51,6 @@ typedef struct Block_USBSSD_{
 }Block_USBSSD;
 
 typedef struct Plane_USBSSD_{
-    unsigned long long allPageCount;
     unsigned long long freePageCount;
     unsigned long long validPageCount;
     unsigned long long invalidPageCount;
@@ -54,7 +59,6 @@ typedef struct Plane_USBSSD_{
 }Plane_USBSSD;
 
 typedef struct Die_USBSSD_{
-    unsigned long long allPageCount;
     unsigned long long freePageCount;
     unsigned long long validPageCount;
     unsigned long long invalidPageCount;
@@ -69,7 +73,6 @@ typedef struct Die_USBSSD_{
 typedef struct Chip_USBSSD_{
     unsigned char state;
 
-    unsigned long long allPageCount;
     unsigned long long freePageCount;
     unsigned long long validPageCount;
     unsigned long long invalidPageCount;
@@ -83,7 +86,6 @@ typedef struct Chip_USBSSD_{
 typedef struct Channle_USBSSD_{
     unsigned char state;
 
-    unsigned long long allPageCount;
     unsigned long long freePageCount;
     unsigned long long validPageCount;
     unsigned long long invalidPageCount;
@@ -92,13 +94,21 @@ typedef struct Channle_USBSSD_{
 }Channle_USBSSD;
 
 typedef struct USBSSD_USBSSD_{
+    int channelCount;
+    int chipOfChannel;
+    int dieOfChip;
+    int planeOfDie;
+    int blockOfPlane;
+    int pageOfBlock;
+    int subpageOfPage;
+
     Channle_USBSSD* channelInfos;
 }USBSSD_USBSSD;
 
 typedef struct mapEntry_USBSSD_{
     int subPage; // if < 0, it is invalid.
-    unsigned long long ppn; // for HW page
-}mapEntry_USBSSD;
+    PPN_Info_USBSSD ppn; // for HW page
+}mapEntry_USBSSD; 
 
 void init_Command_USBSSD(void);
 void destory_Command_USBSSD(void);
@@ -106,5 +116,7 @@ void destory_Command_USBSSD(void);
 unsigned long long get_capacity_USBSSD(void);
 void setup_USBSSD(void);
 int get_PPN_USBSSD(unsigned long long lpn, mapEntry_USBSSD *ret);
+
+void allocate_command_USBSSD(void);
 
 #endif
