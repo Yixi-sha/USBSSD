@@ -122,128 +122,144 @@ SubRequest_USBSSD *get_Update_USBSSD(SubRequest_USBSSD* write){
     return ret;
 }
 
-SubRequest_USBSSD *get_SubRequests_USBSSD(int chan, int chip, int operation){
+SubRequest_USBSSD *get_SubRequests_Read_Start_USBSSD(void){
+    mutex_lock(&subMutexR);
+    return HeadR;
+}
+
+SubRequest_USBSSD *get_SubRequests_Read_Iter_USBSSD(SubRequest_USBSSD *iter){
+    if(iter->operation != READ_USBSSD){
+        return NULL;
+    }
+
+    return iter->next;
+}
+
+SubRequest_USBSSD *get_SubRequests_Read_Get_USBSSD(SubRequest_USBSSD *iter){
+    SubRequest_USBSSD* now = NULL, *head = NULL;
+    mapEntry_USBSSD target, miter;
+
+    if(!iter || iter->operation != READ_USBSSD || get_PPN_USBSSD(iter->lpn, &target)){
+        return NULL;
+    }
+    head = iter;
+    iter = iter->next;
+    now = head;
+    remove_From_List_SubRequest_Unsafe_USBSSD(head);
+    now->pre = NULL;
+    now->next = NULL;
+
+    while(iter){
+        if(get_PPN_USBSSD(iter->lpn, &miter)){
+            return head;
+        }
+        if(miter.subPage >= 0 && target.ppn.channel == miter.ppn.channel && target.ppn.chip == miter.ppn.chip){
+            now->next = iter;
+            iter = iter->next;
+            remove_From_List_SubRequest_Unsafe_USBSSD(now->next);
+            now->next->pre = now;
+            now->next->next = NULL;
+            now = now->next;
+        }else{
+            iter = iter->next;
+        }
+    }
+
+    return head;
+}
+
+void get_SubRequests_Read_End_USBSSD(void){
+    mutex_unlock(&subMutexR);
+}
+
+SubRequest_USBSSD *get_SubRequests_Write_USBSSD(void){
     SubRequest_USBSSD* now = NULL, *head = NULL, *iter = NULL;
     mapEntry_USBSSD target, miter;
 
-    if(operation == READ_USBSSD){
-        mutex_lock(&subMutexR);
-        iter = HeadR;
-        while(iter){
-            if(head == NULL){
-                if(get_PPN_USBSSD(iter->lpn, &target)){
-                    mutex_unlock(&subMutexR);
-                    return NULL;
-                }
-                if(target.subPage >= 0 && target.ppn.channel == chan && target.ppn.chip == chip){
-                    head = iter;
-                    iter = iter->next;
-                    now = head;
-                    remove_From_List_SubRequest_Unsafe_USBSSD(head);
-                    now->pre = NULL;
-                    now->next = NULL;
-                }else{
-                    iter = iter->next;
-                }
-            }else{
-                if(get_PPN_USBSSD(iter->lpn, &miter)){
-                    mutex_unlock(&subMutexR);
-                    return head;
-                }
-                if(miter.subPage >= 0 && target.ppn.channel == miter.ppn.channel && target.ppn.chip == miter.ppn.chip){
-                    now->next = iter;
-                    iter = iter->next;
-                    remove_From_List_SubRequest_Unsafe_USBSSD(now->next);
-                    now->next->pre = now;
-                    now->next->next = NULL;
-                    now = now->next;
-                }else{
-                    iter = iter->next;
-                }
-            }
-        }
-        mutex_unlock(&subMutexR);
-    }else{
-        int targetCount = PAGE_SIZE_HW_USBSSD / SUB_PAGE_SIZE_USBSSD;
-        int nowCount = 0;
-        unsigned char preRead = 0;
+    
+    int targetCount = PAGE_SIZE_HW_USBSSD / SUB_PAGE_SIZE_USBSSD;
+    int nowCount = 0;
+    unsigned char preRead = 0;
 
-        mutex_lock(&subMutexW);
-        iter = HeadW;
-        if(!iter){
-            return NULL;
-        }
-        while(nowCount < targetCount && iter){
-            if(iter->len != SUB_PAGE_SIZE_USBSSD && iter->update == NULL){
-                if(get_PPN_USBSSD(iter->lpn, &target)){
-                    mutex_unlock(&subMutexW);
-                    return NULL;
-                }
-                if(miter.subPage >= 0){
-                    preRead++;
-                    break;
-                }
-            }
-            iter = iter->next;
-            nowCount++;
-        }
-        if(preRead){
-            head = get_Update_USBSSD(iter);
-            if(!head){
+    mutex_lock(&subMutexW);
+    iter = HeadW;
+    if(!iter){
+        return NULL;
+    }
+    while(nowCount < targetCount && iter){
+        if(iter->len != SUB_PAGE_SIZE_USBSSD && iter->update == NULL){
+            if(get_PPN_USBSSD(iter->lpn, &target)){
                 mutex_unlock(&subMutexW);
                 return NULL;
             }
-            now = head;
-            iter = iter->next;
-            while(iter){
-                if(iter->len != SUB_PAGE_SIZE_USBSSD && iter->update == NULL){
-                    if(get_PPN_USBSSD(iter->lpn, &miter)){
-                        mutex_unlock(&subMutexW);
-                        return head;
-                    }
-                    if(miter.subPage >= 0 && miter.ppn.channel == target.ppn.channel && \
-                    miter.ppn.chip == target.ppn.chip && miter.ppn.die == target.ppn.die && \
-                    miter.ppn.plane == target.ppn.plane && miter.ppn.block == target.ppn.block &&
-                    miter.ppn.page == target.ppn.page){
-                        now->next = get_Update_USBSSD(iter);
-                        if(!now->next){
-                            mutex_unlock(&subMutexW);
-                            return head;
-                        }
-                        now->next->pre = now;
-                        now = now->next;
-                    }
-                }
-                iter = iter->next;
+            if(miter.subPage >= 0){
+                preRead++;
+                break;
             }
-        }else if(nowCount != targetCount && (HeadW->jiffies + TIME_INTERVAL) < jiffies){
-            //set up timer
-        }else{
-            iter = HeadW;
-            nowCount = 0;
-
-            while(nowCount < targetCount && iter){
-                if(!head){
-                    head = iter;
-                    iter = iter->next;
-                    remove_From_List_SubRequest_Unsafe_USBSSD(head);
-                    head->pre = NULL;
-                    head->next = NULL;
-                    now = head;
-                }else{
-                    now->next = iter;
-                    iter = iter->next;
-                    remove_From_List_SubRequest_Unsafe_USBSSD(now->next);
-                    now->next->next = NULL;
+        }
+        iter = iter->next;
+        nowCount++;
+    }
+    if(preRead){
+        head = get_Update_USBSSD(iter);
+        if(!head){
+            mutex_unlock(&subMutexW);
+            return NULL;
+        }
+        now = head;
+        iter = iter->next;
+        while(iter){
+            if(iter->len != SUB_PAGE_SIZE_USBSSD && iter->update == NULL){
+                if(get_PPN_USBSSD(iter->lpn, &miter)){
+                    mutex_unlock(&subMutexW);
+                    return head;
+                }
+                if(miter.subPage >= 0 && miter.ppn.channel == target.ppn.channel && \
+                miter.ppn.chip == target.ppn.chip && miter.ppn.die == target.ppn.die && \
+                miter.ppn.plane == target.ppn.plane && miter.ppn.block == target.ppn.block &&
+                miter.ppn.page == target.ppn.page){
+                    now->next = get_Update_USBSSD(iter);
+                    if(!now->next){
+                        mutex_unlock(&subMutexW);
+                        //return head;
+                        break;
+                    }
                     now->next->pre = now;
                     now = now->next;
                 }
-                nowCount++;
             }
-
+            iter = iter->next;
         }
-        mutex_unlock(&subMutexW);
+        add_To_List_SubRequest_USBSSD(head, now);
+
+    }else if(nowCount != targetCount && (HeadW->jiffies + TIME_INTERVAL) < jiffies){
+        //set up timer
+    }else{
+        iter = HeadW;
+        nowCount = 0;
+
+        while(nowCount < targetCount && iter){
+            if(!head){
+                head = iter;
+                iter = iter->next;
+                remove_From_List_SubRequest_Unsafe_USBSSD(head);
+                head->pre = NULL;
+                head->next = NULL;
+                now = head;
+            }else{
+                now->next = iter;
+                iter = iter->next;
+                remove_From_List_SubRequest_Unsafe_USBSSD(now->next);
+                now->next->next = NULL;
+                now->next->pre = now;
+                now = now->next;
+            }
+            nowCount++;
+        }
+
     }
+    mutex_unlock(&subMutexW);
+    
     return head;
 }
 

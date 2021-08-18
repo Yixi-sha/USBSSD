@@ -77,6 +77,8 @@ typedef struct Chip_USBSSD_{
     unsigned long long validPageCount;
     unsigned long long invalidPageCount;
 
+    Command_USBSSD *chipCommand;
+
     Die_USBSSD* dieInfos;
 }Chip_USBSSD;
 

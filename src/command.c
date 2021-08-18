@@ -6,32 +6,65 @@ static unsigned long long usable_capacity_USBSSD = 0;
 static USBSSD_USBSSD *usbssd = NULL;
 static struct mutex usbssdMutex;
 static mapEntry_USBSSD *map;
+static unsigned long long mapSize = 0;
 static struct mutex mapMutex;
 
-static unsigned long long mapSize = 0;
+
 
 unsigned long long get_capacity_USBSSD(void){
     return usable_capacity_USBSSD;
 }
 
+static void generate_Read_Command(int chan){
+    SubRequest_USBSSD *iterRead = NULL, *subReads = NULL;
+    
+    for(iterRead = get_SubRequests_Read_Start_USBSSD(); iterRead; iterRead = get_SubRequests_Read_Iter_USBSSD(iterRead)){
+        if(map[iterRead->lpn].ppn.channel == chan){
+            int chip = map[iterRead->lpn].ppn.chip;
+            if(usbssd->channelInfos[chan].chipInfos[chip].state == IDLE_HW_CHIP_STATE){
+                subReads = get_SubRequests_Read_Get_USBSSD(iterRead);
+                break;
+            }
+        }
+    }
+    get_SubRequests_Read_End_USBSSD();
+    if(subReads){
+
+    }
+}
+
 void allocate_command_USBSSD(void){
-    int chan = 0;
+    int chan = -1;
+    int i;
+    
     if(!allocator || !usbssd){
         return;
     }
 
     mutex_lock(&usbssdMutex);
-    for(chan = 0; chan < usbssd->channelCount; chan++){
-        if(usbssd->channelInfos[chan].state == IDLE_HW_CHANNEL_STATE){
-            int chip = 0;
-            for(chip = 0; chip < usbssd->chipOfChannel; chip++){
-                if(usbssd->channelInfos[chan].chipInfos[chip].state == IDLE_HW_CHIP_STATE){
 
+    for(i = 0; i < usbssd->channelCount; i++){
+        int j;
+        for(j = 0; j < usbssd->channelCount; j++){
+            if(usbssd->channelInfos[j].state == IDLE_HW_CHANNEL_STATE){
+                int x;
+                for(x = 0; x < usbssd->chipOfChannel; x++){
+                    if(usbssd->channelInfos[j].chipInfos[x].state == IDLE_HW_CHIP_STATE){
+                        break;
+                    }
+                }
+                if(x != usbssd->chipOfChannel && \
+                (chan == -1 || usbssd->channelInfos[chan].validPageCount > usbssd->channelInfos[j].validPageCount)){
+                    chan = j;
                 }
             }
         }
+        if(chan == -1){
+            break;
+        }
+        generate_Read_Command(chan);
+        
     }
-
 }
 
 int get_PPN_USBSSD(unsigned long long lpn, mapEntry_USBSSD *ret){
