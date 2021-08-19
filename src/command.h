@@ -18,7 +18,6 @@ typedef struct PPN_Info_USBSSD_{
 }PPN_Info_USBSSD;
 
 typedef struct Command_USBSSD_{
-    unsigned long long lpn;
     PPN_Info_USBSSD ppnInfo;
     unsigned char operation;
 
@@ -47,6 +46,7 @@ typedef struct Block_USBSSD_{
     unsigned long long validPageCount;
     unsigned long long invalidPageCount;
 
+    unsigned long long startWrite;
     Page_USBSSD* pageInfos;
 }Block_USBSSD;
 
@@ -54,6 +54,8 @@ typedef struct Plane_USBSSD_{
     unsigned long long freePageCount;
     unsigned long long validPageCount;
     unsigned long long invalidPageCount;
+
+    unsigned long long activeBlock;
 
     Block_USBSSD* blockInfos;
 }Plane_USBSSD;

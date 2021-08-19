@@ -212,7 +212,8 @@ SubRequest_USBSSD *get_SubRequests_Write_USBSSD(void){
             if(iter->len != SUB_PAGE_SIZE_USBSSD && iter->update == NULL){
                 if(get_PPN_USBSSD(iter->lpn, &miter)){
                     mutex_unlock(&subMutexW);
-                    return head;
+                    break;
+                    //return head;
                 }
                 if(miter.subPage >= 0 && miter.ppn.channel == target.ppn.channel && \
                 miter.ppn.chip == target.ppn.chip && miter.ppn.die == target.ppn.die && \
@@ -231,7 +232,7 @@ SubRequest_USBSSD *get_SubRequests_Write_USBSSD(void){
             iter = iter->next;
         }
         add_To_List_SubRequest_USBSSD(head, now);
-
+        return NULL;
     }else if(nowCount != targetCount && (HeadW->jiffies + TIME_INTERVAL) < jiffies){
         //set up timer
     }else{
