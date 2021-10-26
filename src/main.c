@@ -7,6 +7,7 @@
 
 #include "request.h"
 #include "allocator.h"
+#include "memCheck.h"
 
 #define SIMP_BLKDEV_BYTES            (64 * 1024 * 1024)
 char simp_blkdev_data[SIMP_BLKDEV_BYTES];
@@ -84,8 +85,16 @@ static int __init USBSSD_init(void){
     set_capacity(USBSSD_DISK, SIMP_BLKDEV_BYTES >> 9); // number of sector
     
     add_disk(USBSSD_DISK);
-    return 0;
+    printk("PAG_SIZE %ld\n", PAGE_SIZE);
 
+    if(init_Request_USBSSD()){
+        goto err3;
+    }
+    boost_test_requsts();
+    return 0;
+err3:
+    del_gendisk(USBSSD_DISK);
+    blk_cleanup_queue(q);
 err2:
     put_disk(USBSSD_DISK); 
 err1:
@@ -96,9 +105,12 @@ err:
 
 static void __exit USBSSD__exit(void){
     del_gendisk(USBSSD_DISK);
-    put_disk(USBSSD_DISK);
     blk_cleanup_queue(q);
+    put_disk(USBSSD_DISK);
 	unregister_blkdev(BLOCK_MAJORY,"USBSSD");
+
+    destory_Request_USBSSD();
+    printk("get_kmalloc_count %d\n", get_kmalloc_count());
 }
 
 

@@ -2,6 +2,7 @@
 #define __ALLOCATOR_USBSSD_H__
 
 #include <linux/mutex.h>
+#include "memCheck.h"
 
 typedef struct Inter_Allocator_USBSSD_{
     struct Inter_Allocator_USBSSD_ *pre;

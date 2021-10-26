@@ -131,7 +131,6 @@ SubRequest_USBSSD *get_SubRequests_Read_Iter_USBSSD(SubRequest_USBSSD *iter){
     if(iter->operation != READ_USBSSD){
         return NULL;
     }
-
     return iter->next;
 }
 
@@ -164,7 +163,6 @@ SubRequest_USBSSD *get_SubRequests_Read_Get_USBSSD(SubRequest_USBSSD *iter){
             iter = iter->next;
         }
     }
-
     return head;
 }
 

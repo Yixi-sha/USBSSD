@@ -21,6 +21,7 @@
         "tuple": "cpp",
         "type_traits": "cpp",
         "bset.h": "c",
-        "sub_request.h": "c"
+        "sub_request.h": "c",
+        "memcheck.h": "c"
     }
 }

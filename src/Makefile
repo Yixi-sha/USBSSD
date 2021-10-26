@@ -1,7 +1,7 @@
 CONFIG_MODULE_SIG=n
 ifneq ($(KERNELRELEASE),)
 obj-m := USBSSD.o
-USBSSD-objs := main.o request.o allocator.o sub_request.o command.o
+USBSSD-objs := main.o request.o allocator.o sub_request.o command.o memCheck.o
 else
 KDIR :=/lib/modules/$(shell uname -r)/build
 all:

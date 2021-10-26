@@ -1,5 +1,4 @@
 #include "allocator.h"
-#include <linux/slab.h>
 
 void *allocate_USBSSD(Allocator_USBSSD* a){
     Inter_Allocator_USBSSD *ret = NULL;
@@ -17,7 +16,7 @@ void *allocate_USBSSD(Allocator_USBSSD* a){
     mutex_unlock(&(a->freeMutex));
 
     if(!ret){
-        ret = kmalloc(a->allSize, GFP_KERNEL);
+        ret = kmalloc_wrap(a->allSize, GFP_KERNEL);
         ret = ((void*)ret) + a->offset;
     }
     if(!ret){
@@ -73,7 +72,7 @@ void free_USBSSD(Allocator_USBSSD* a, void* addr){
 }
 
 Allocator_USBSSD* init_allocator_USBSSD(int allsize, int offset){
-    Allocator_USBSSD *ret = kmalloc(sizeof(Allocator_USBSSD), GFP_KERNEL);
+    Allocator_USBSSD *ret = kmalloc_wrap(sizeof(Allocator_USBSSD), GFP_KERNEL);
     if(!ret){
         return ret;
     }
@@ -103,15 +102,15 @@ void destory_allocator_USBSSD(Allocator_USBSSD* ptr){
         Inter_Allocator_USBSSD *wfree = ptr->freeHead;
         ptr->freeHead = ptr->freeHead->next;
 
-        kfree(((void*)wfree) - ptr->offset);
+        kfree_wrap(((void*)wfree) - ptr->offset);
     }
 
     while(ptr->usedHead){
         Inter_Allocator_USBSSD *wfree = ptr->usedHead;
         ptr->usedHead = ptr->usedHead->next;
 
-        kfree(((void*)wfree) - ptr->offset);
+        kfree_wrap(((void*)wfree) - ptr->offset);
     }
 
-    kfree(ptr);
+    kfree_wrap(ptr);
 }

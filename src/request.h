@@ -15,7 +15,10 @@ typedef struct Request_USBSSD_{
 Request_USBSSD *allocate_Request_USBSSD(struct bio *bio);
 void free_Request_USBSSD(Request_USBSSD*);
 
-void init_Request_USBSSD(void);
+int init_Request_USBSSD(void);
 void destory_Request_USBSSD(void);
+
+void boost_test_requsts(void);
+
 
 #endif // !__REQUEST_USBSSD_H__
