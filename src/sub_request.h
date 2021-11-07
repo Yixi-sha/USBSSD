@@ -7,54 +7,52 @@
 #include <linux/bio.h>
 #include <linux/timer.h>
 
-#define READ_USBSSD 0
-#define WRITE_USBSSD 1
 
-#define SUB_PAGE_SIZE_USBSSD PAGE_SIZE // actual map granularity PAGE_SIZE
+#define SUB_PAGE_SIZE_USBSSD 2048// actual map granularity PAGE_SIZE
+#define SUB_PAGE_MASK 0xffffffffffffffffULL
 
-typedef struct SubPageBuf_USBSSD_{
-    unsigned char buf[SUB_PAGE_SIZE_USBSSD];
-    Inter_Allocator_USBSSD allocator;
-}SubPageBuf_USBSSD;
+typedef struct PPN_USBSSD_{
+    int channel;
+    int chip;
+    int die;
+    int plane;
+    int block;
+    int page;
+}PPN_USBSSD;
 
 typedef struct SubRequest_USBSSD_{
     Request_USBSSD *req;
 
     unsigned char operation;
-    unsigned long long lpn;
+    unsigned long long lpn; // the address
 
-    int start; // for page of ssd
-    int len;   // for page of ssd
-
-    unsigned long offset; // for  offset of page in operatin system
-    void *page;
+    unsigned long long bitMap;
+    unsigned char buf[SUB_PAGE_SIZE_USBSSD];
 
     unsigned long jiffies;
     
-    void *update; // for write
-    int updateLen;
-    struct SubRequest_USBSSD_ *updateSub; // for read
+    struct SubRequest_USBSSD_ *relatedSub;
+    PPN_USBSSD location;
 
     struct SubRequest_USBSSD_ *pre;
     struct SubRequest_USBSSD_ *next;
+
+    struct SubRequest_USBSSD_ *next_inter;
     /*for allocter*/
     Inter_Allocator_USBSSD allocator;
 }SubRequest_USBSSD;
 
-SubRequest_USBSSD *allocate_SubRequest_USBSSD(Request_USBSSD *req, struct bio_vec *bvec, sector_t sector, unsigned char operation);
+SubRequest_USBSSD *allocate_SubRequest_USBSSD(Request_USBSSD *req, unsigned long long lpn, unsigned long long bitMap, unsigned char operation);
+void subRequest_End(SubRequest_USBSSD *sub);
 void free_SubRequest_USBSSD(SubRequest_USBSSD*);
 
 void add_To_List_SubRequest_USBSSD(SubRequest_USBSSD*, SubRequest_USBSSD*);
 void remove_From_List_SubRequest_USBSSD(SubRequest_USBSSD*);
 
-SubRequest_USBSSD *get_SubRequests_Write_USBSSD(void);
+SubRequest_USBSSD *get_SubRequests_Write_USBSSD(int chan, int chip);
+SubRequest_USBSSD *get_SubRequests_Read_USBSSD(int chan, int chip);
 
-SubRequest_USBSSD *get_SubRequests_Read_Start_USBSSD(void);
-SubRequest_USBSSD *get_SubRequests_Read_Iter_USBSSD(SubRequest_USBSSD *);
-SubRequest_USBSSD *get_SubRequests_Read_Get_USBSSD(SubRequest_USBSSD *);
-void get_SubRequests_Read_End_USBSSD(void);
-
-void init_SubRequest_USBSSD(void);
+int init_SubRequest_USBSSD(void);
 void destory_SubRequest_USBSSD(void);
 
 #endif

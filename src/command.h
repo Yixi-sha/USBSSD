@@ -7,21 +7,14 @@
 #define PAGE_SIZE_HW_USBSSD 4096
 #define RESERVE_RATE 0.1
 
-typedef struct PPN_Info_USBSSD_{
-    unsigned long long channel;
-    unsigned long long chip;
-    unsigned long long die;
-    unsigned long long plane;
-    unsigned long long block;
-    unsigned long long page;
-    unsigned long long subPage;
-}PPN_Info_USBSSD;
+#define ERASE 2
 
 typedef struct Command_USBSSD_{
-    PPN_Info_USBSSD ppnInfo;
     unsigned char operation;
+    void *subReqs;
+    struct Command_USBSSD_ *next;
+    unsigned long long ID;
 
-    SubRequest_USBSSD *subReqs;
     Inter_Allocator_USBSSD allocator;
 }Command_USBSSD;
 
@@ -56,6 +49,8 @@ typedef struct Plane_USBSSD_{
     unsigned long long invalidPageCount;
 
     unsigned long long activeBlock;
+    PPN_USBSSD eraseLocation;
+    unsigned char eraseUsed;
 
     Block_USBSSD* blockInfos;
 }Plane_USBSSD;
@@ -64,6 +59,8 @@ typedef struct Die_USBSSD_{
     unsigned long long freePageCount;
     unsigned long long validPageCount;
     unsigned long long invalidPageCount;
+
+    int planeToken;
 
     Plane_USBSSD* planeInfos;
 }Die_USBSSD;
@@ -79,8 +76,12 @@ typedef struct Chip_USBSSD_{
     unsigned long long validPageCount;
     unsigned long long invalidPageCount;
 
-    Command_USBSSD *chipCommand;
+    Command_USBSSD *commands;
+    Command_USBSSD *commandsTail;
 
+    Command_USBSSD *eraseCommands;
+    Command_USBSSD *eraseCommandsTail;
+    int dieToken;
     Die_USBSSD* dieInfos;
 }Chip_USBSSD;
 
@@ -94,6 +95,8 @@ typedef struct Channle_USBSSD_{
     unsigned long long validPageCount;
     unsigned long long invalidPageCount;
 
+    int chipToken;
+
     Chip_USBSSD* chipInfos;
 }Channle_USBSSD;
 
@@ -106,12 +109,14 @@ typedef struct USBSSD_USBSSD_{
     int pageOfBlock;
     int subpageOfPage;
 
+    int channelToken;
+
     Channle_USBSSD* channelInfos;
 }USBSSD_USBSSD;
 
 typedef struct mapEntry_USBSSD_{
-    int subPage; // if < 0, it is invalid.
-    PPN_Info_USBSSD ppn; // for HW page
+    unsigned long long subPage; // if == 0, it is invalid.
+    unsigned long long ppn; // for HW page
 }mapEntry_USBSSD; 
 
 void init_Command_USBSSD(void);
@@ -120,6 +125,9 @@ void destory_Command_USBSSD(void);
 unsigned long long get_capacity_USBSSD(void);
 void setup_USBSSD(void);
 int get_PPN_USBSSD(unsigned long long lpn, mapEntry_USBSSD *ret);
+int get_PPN_Detail_USBSSD(unsigned long long ppn, PPN_USBSSD *ppn_USBSSD);
+void allocate_location(PPN_USBSSD *location);
+unsigned long long get_PPN_From_Detail_USBSSD(PPN_USBSSD *ppn_USBSSD);
 
 void allocate_command_USBSSD(void);
 

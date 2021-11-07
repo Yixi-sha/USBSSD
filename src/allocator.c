@@ -95,9 +95,6 @@ void destory_allocator_USBSSD(Allocator_USBSSD* ptr){
     mutex_lock(&(ptr->freeMutex));
     mutex_lock(&(ptr->usedMutex));
 
-    mutex_destroy(&(ptr->freeMutex));
-    mutex_destroy(&(ptr->usedMutex));
-
     while(ptr->freeHead){
         Inter_Allocator_USBSSD *wfree = ptr->freeHead;
         ptr->freeHead = ptr->freeHead->next;
@@ -113,4 +110,7 @@ void destory_allocator_USBSSD(Allocator_USBSSD* ptr){
     }
 
     kfree_wrap(ptr);
+
+    mutex_destroy(&(ptr->freeMutex));
+    mutex_destroy(&(ptr->usedMutex));
 }

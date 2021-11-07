@@ -2,10 +2,8 @@
 #include <stddef.h>
 #include "command.h"
 
-#define TIME_INTERVAL 100
 
 static Allocator_USBSSD *allocator = NULL;
-static Allocator_USBSSD *allocatorBuf = NULL;
 static SubRequest_USBSSD* HeadR = NULL;
 static SubRequest_USBSSD* TailR = NULL;
 static struct mutex subMutexR;
@@ -23,7 +21,7 @@ void add_To_List_SubRequest_USBSSD(SubRequest_USBSSD* h, SubRequest_USBSSD* t){
         return;
     }
 
-    if(h->operation == READ_USBSSD){
+    if(h->operation == READ){
         mutex_lock(&subMutexR);
         if(HeadR == NULL){
             HeadR = h;
@@ -48,10 +46,18 @@ void add_To_List_SubRequest_USBSSD(SubRequest_USBSSD* h, SubRequest_USBSSD* t){
     }   
 }
 
-static void remove_From_List_SubRequest_Unsafe_USBSSD(SubRequest_USBSSD* target){
+static void remove_From_List_SubRequest_USBSSD_Unsafe(SubRequest_USBSSD* target){
     SubRequest_USBSSD* now = NULL;
 
-    if(target->operation == READ_USBSSD){
+    if(target->operation == READ){
+        now = HeadR;
+        while(now && now != target){
+            now = now->next;
+        }
+        if(!now){
+            return;
+        }
+
         if(now == HeadR){
             HeadR = now->next;
             if(HeadR){
@@ -68,8 +74,15 @@ static void remove_From_List_SubRequest_Unsafe_USBSSD(SubRequest_USBSSD* target)
                 TailR = now->pre;
             }
         }
-       
     }else{
+        now = HeadW;
+        while(now && now != target){
+            now = now->next;
+        }
+        if(!now){
+            return;
+        }
+
         if(now == HeadW){
             HeadW = now->next;
             if(HeadW){
@@ -88,176 +101,40 @@ static void remove_From_List_SubRequest_Unsafe_USBSSD(SubRequest_USBSSD* target)
         }
     }
 }
-SubRequest_USBSSD *get_Update_USBSSD(SubRequest_USBSSD* write){
-    SubPageBuf_USBSSD *buf = allocate_USBSSD(allocatorBuf);
-    SubRequest_USBSSD *ret = NULL;
-    if(!buf){
-        return NULL;
-    }
-    ret = allocate_USBSSD(allocator);
-    if(!ret){
-        free_USBSSD(allocatorBuf, buf);
-        return NULL;
-    }
 
-    ret->operation = READ_USBSSD;
-
-    ret->lpn = write->lpn;
-    ret->start = 0;
-    ret->offset = 0;
-
-    ret->page = NULL;
-    ret->jiffies = jiffies;
-
-    ret->update = NULL;
-    ret->updateLen = 0;
-
-    ret->updateSub = write;
-
-    ret->pre = NULL;
-    ret->next = NULL;
-
-    ret->page = buf->buf;
-
-    return ret;
-}
-
-SubRequest_USBSSD *get_SubRequests_Read_Start_USBSSD(void){
-    mutex_lock(&subMutexR);
-    return HeadR;
-}
-
-SubRequest_USBSSD *get_SubRequests_Read_Iter_USBSSD(SubRequest_USBSSD *iter){
-    if(iter->operation != READ_USBSSD){
-        return NULL;
-    }
-    return iter->next;
-}
-
-SubRequest_USBSSD *get_SubRequests_Read_Get_USBSSD(SubRequest_USBSSD *iter){
-    SubRequest_USBSSD* now = NULL, *head = NULL;
-    mapEntry_USBSSD target, miter;
-
-    if(!iter || iter->operation != READ_USBSSD || get_PPN_USBSSD(iter->lpn, &target)){
-        return NULL;
-    }
-    head = iter;
-    iter = iter->next;
-    now = head;
-    remove_From_List_SubRequest_Unsafe_USBSSD(head);
-    now->pre = NULL;
-    now->next = NULL;
-
-    while(iter){
-        if(get_PPN_USBSSD(iter->lpn, &miter)){
-            return head;
+SubRequest_USBSSD *get_SubRequests_Write_USBSSD(int chan, int chip){
+    SubRequest_USBSSD *head = NULL;
+    mutex_lock(&subMutexW);
+    head = HeadW;
+    while(head){
+        if(head->relatedSub == NULL && head->location.channel == chan && head->location.chip == chip){
+            break;
         }
-        if(miter.subPage >= 0 && target.ppn.channel == miter.ppn.channel && target.ppn.chip == miter.ppn.chip){
-            now->next = iter;
-            iter = iter->next;
-            remove_From_List_SubRequest_Unsafe_USBSSD(now->next);
-            now->next->pre = now;
-            now->next->next = NULL;
-            now = now->next;
-        }else{
-            iter = iter->next;
-        }
+        head = head->next;
     }
+    if(head){
+        remove_From_List_SubRequest_USBSSD_Unsafe(head);
+    }
+    mutex_unlock(&subMutexW);
+    
+    
     return head;
 }
 
-void get_SubRequests_Read_End_USBSSD(void){
+SubRequest_USBSSD *get_SubRequests_Read_USBSSD(int chan, int chip){
+    SubRequest_USBSSD *head = NULL;
+    mutex_lock(&subMutexR);
+    head = HeadR;
+    while(head){
+        if(head->location.channel == chan && head->location.chip == chip){
+            break;
+        }
+        head = head->next;
+    }
+    if(head){
+        remove_From_List_SubRequest_USBSSD_Unsafe(head);
+    }
     mutex_unlock(&subMutexR);
-}
-
-SubRequest_USBSSD *get_SubRequests_Write_USBSSD(void){
-    SubRequest_USBSSD* now = NULL, *head = NULL, *iter = NULL;
-    mapEntry_USBSSD target, miter;
-
-    
-    int targetCount = PAGE_SIZE_HW_USBSSD / SUB_PAGE_SIZE_USBSSD;
-    int nowCount = 0;
-    unsigned char preRead = 0;
-
-    mutex_lock(&subMutexW);
-    iter = HeadW;
-    if(!iter){
-        return NULL;
-    }
-    while(nowCount < targetCount && iter){
-        if(iter->len != SUB_PAGE_SIZE_USBSSD && iter->update == NULL){
-            if(get_PPN_USBSSD(iter->lpn, &target)){
-                mutex_unlock(&subMutexW);
-                return NULL;
-            }
-            if(miter.subPage >= 0){
-                preRead++;
-                break;
-            }
-        }
-        iter = iter->next;
-        nowCount++;
-    }
-    if(preRead){
-        head = get_Update_USBSSD(iter);
-        if(!head){
-            mutex_unlock(&subMutexW);
-            return NULL;
-        }
-        now = head;
-        iter = iter->next;
-        while(iter){
-            if(iter->len != SUB_PAGE_SIZE_USBSSD && iter->update == NULL){
-                if(get_PPN_USBSSD(iter->lpn, &miter)){
-                    mutex_unlock(&subMutexW);
-                    break;
-                    //return head;
-                }
-                if(miter.subPage >= 0 && miter.ppn.channel == target.ppn.channel && \
-                miter.ppn.chip == target.ppn.chip && miter.ppn.die == target.ppn.die && \
-                miter.ppn.plane == target.ppn.plane && miter.ppn.block == target.ppn.block &&
-                miter.ppn.page == target.ppn.page){
-                    now->next = get_Update_USBSSD(iter);
-                    if(!now->next){
-                        mutex_unlock(&subMutexW);
-                        //return head;
-                        break;
-                    }
-                    now->next->pre = now;
-                    now = now->next;
-                }
-            }
-            iter = iter->next;
-        }
-        add_To_List_SubRequest_USBSSD(head, now);
-        return NULL;
-    }else if(nowCount != targetCount && (HeadW->jiffies + TIME_INTERVAL) < jiffies){
-        //set up timer
-    }else{
-        iter = HeadW;
-        nowCount = 0;
-
-        while(nowCount < targetCount && iter){
-            if(!head){
-                head = iter;
-                iter = iter->next;
-                remove_From_List_SubRequest_Unsafe_USBSSD(head);
-                head->pre = NULL;
-                head->next = NULL;
-                now = head;
-            }else{
-                now->next = iter;
-                iter = iter->next;
-                remove_From_List_SubRequest_Unsafe_USBSSD(now->next);
-                now->next->next = NULL;
-                now->next->pre = now;
-                now = now->next;
-            }
-            nowCount++;
-        }
-
-    }
-    mutex_unlock(&subMutexW);
     
     return head;
 }
@@ -265,7 +142,7 @@ SubRequest_USBSSD *get_SubRequests_Write_USBSSD(void){
 void remove_From_List_SubRequest_USBSSD(SubRequest_USBSSD* target){
     SubRequest_USBSSD* now = NULL;
 
-    if(target->operation == READ_USBSSD){
+    if(target->operation == READ){
         mutex_lock(&subMutexR);
         now = HeadR;
         while(now && now != target){
@@ -324,47 +201,68 @@ void remove_From_List_SubRequest_USBSSD(SubRequest_USBSSD* target){
     }
 }
 
-SubRequest_USBSSD *allocate_SubRequest_USBSSD(Request_USBSSD *req, struct bio_vec *bvec, sector_t sector, unsigned char operation){
+SubRequest_USBSSD *allocate_SubRequest_USBSSD(Request_USBSSD *req, unsigned long long lpn, unsigned long long bitMap, unsigned char operation){
+    mapEntry_USBSSD nowMAp;
     SubRequest_USBSSD *ret = allocate_USBSSD(allocator);
-    unsigned long start = (sector) << SECTOR_SHIFT;
-    unsigned int len = bvec->bv_len;
     if(!ret){
         return NULL;
     }
 
     ret->req = req;
-    ret->operation = operation ? WRITE_USBSSD : READ_USBSSD;
-    ret->lpn = start / SUB_PAGE_SIZE_USBSSD;
-
-    ret->start = start % SUB_PAGE_SIZE_USBSSD;
-    ret->len = len;
-
-    ret->page = bvec->bv_page;
-    ret->offset = bvec->bv_offset;
-
+    ret->operation = operation;
+    ret->lpn = lpn;
+    ret->bitMap = bitMap;
     ret->jiffies = jiffies;
-
-    ret->update = NULL;
-    ret->updateLen = 0;
-    ret->updateSub = NULL;
-
+    ret->relatedSub = NULL;
     ret->pre = NULL;
     ret->next = NULL;
+    ret->next_inter = NULL;
+
+    if(get_PPN_USBSSD(ret->lpn, &nowMAp)){
+        free_SubRequest_USBSSD(ret);
+        return NULL;
+    }
+    
+    if(ret->operation == READ){
+        get_PPN_Detail_USBSSD(nowMAp.ppn, &ret->location);
+    }else{
+        allocate_location(&ret->location);
+    }
+
+    if(ret->operation == WRITE && ((ret->bitMap & nowMAp.subPage) != nowMAp.subPage)){
+        SubRequest_USBSSD *relatedSub = allocate_SubRequest_USBSSD(NULL, lpn, nowMAp.subPage, READ);
+        ret->relatedSub = relatedSub;
+        relatedSub->relatedSub = ret;
+    }else{
+        ret->relatedSub = NULL;
+    }
 
     return ret;
+}
+
+void subRequest_End(SubRequest_USBSSD *sub){
+    if(sub->relatedSub){
+        sub->relatedSub->relatedSub = NULL;
+        free_SubRequest_USBSSD(sub);
+    }else{
+        request_May_End(sub->req);
+    }
+    
 }
 
 void free_SubRequest_USBSSD(SubRequest_USBSSD* addr){
     free_USBSSD(allocator, addr);
 }
 
-void init_SubRequest_USBSSD(void){
+int init_SubRequest_USBSSD(void){
     SubRequest_USBSSD *tmp = 0;
-    SubPageBuf_USBSSD *buf = 0;
     allocator = init_allocator_USBSSD(sizeof(SubRequest_USBSSD), ((void*)(&(tmp->allocator))) - ((void*)tmp));
-    allocatorBuf = init_allocator_USBSSD(sizeof(SubPageBuf_USBSSD), ((void*)(&(buf->allocator))) - ((void*)buf));
+    if(allocator == NULL){
+        return -1;
+    }
     mutex_init(&subMutexR);
     mutex_init(&subMutexW);
+    return 0;
 }
 
 void destory_SubRequest_USBSSD(void){

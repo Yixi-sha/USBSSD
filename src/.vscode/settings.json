@@ -22,6 +22,9 @@
         "type_traits": "cpp",
         "bset.h": "c",
         "sub_request.h": "c",
-        "memcheck.h": "c"
+        "memcheck.h": "c",
+        "request.h": "c",
+        "allocator.h": "c",
+        "sched.h": "c"
     }
 }
