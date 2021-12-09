@@ -1,4 +1,5 @@
 #include "command.h"
+#include "simulateNAND.h"
 
 static Allocator_USBSSD *allocator = NULL;
 static unsigned long long all_capacity_USBSSD = 0;
@@ -24,18 +25,75 @@ unsigned long long get_capacity_USBSSD(void){
     return usable_capacity_USBSSD;
 }
 
-static void send_command(Command_USBSSD *command){
-    if(command->operation == ERASE){
-        //send write + read
-        //update
-        //send erase
-        //update meta
-    }else if(command->operation == WRITE){
-        // send write
-        //update meta
+
+
+static void send_write_command(Command_USBSSD *command){
+    int start = -1, len = 0;
+    int i = 0;
+    SubRequest_USBSSD *sub = command->subReqs;
+    unsigned char *buf = sub->buf;
+    
+    for(i = 0; i < sizeof(sub->bitMap) * 8; i++){
+        if(sub->bitMap & (1ULL << i)){
+            if(start == -1){
+                start = i * 512;
+            }
+            len += 512;
+        }else if(start != -1){
+            break;
+        }
+    }
+    buf += start;
+
+    send_cmd_2_NAND(CMD_PROGRAM_ADDR_DATE_TRANSFERRED, sub->location.channel, sub->location.chip, sub->location.die, \
+    sub->location.plane, sub->location.block, sub->location.page, start, len, sub->buf);
+}
+
+static void send_erase_command(Command_USBSSD *command){
+    PPN_USBSSD *location = command->subReqs;
+    send_cmd_2_NAND(CMD_ERASE_TRANSFERRED, location->channel,location->chip, location->die, \
+    location->plane, location->block, location->page, 0, 0, NULL);
+}
+
+static void send_read_command(Command_USBSSD *command){
+    SubRequest_USBSSD *sub = command->subReqs;
+    send_cmd_2_NAND(CMD_READ_ADDR_TRANSFERRED, sub->location.channel, sub->location.chip, sub->location.die, \
+    sub->location.plane, sub->location.block, sub->location.page, 0, 0, NULL);
+}
+
+void recv_signal(int chan, int chip, unsigned char isChan){
+    mutex_lock(&usbssdMutex);
+    if(isChan){
+        usbssd->channelInfos[chan]->state = IDEL_HW;
     }else{
-        // send read
-        //update meta
+        
+    }
+    
+    mutex_unlock(&usbssdMutex);
+}
+
+static void send_command(Command_USBSSD *command){
+    printk("send_command \n");
+    switch (command->operation){
+        case ERASE:
+            //send write + read
+            //update
+            //send erase
+            //update meta
+            send_erase_command(command);
+            break;
+        
+        case WRITE:
+            send_write_command(command);
+            break;
+        
+        case READ:
+            send_read_command(command);
+            // send read
+            //update meta
+            break;
+        default:
+            break;
     }
 }
 
@@ -46,7 +104,7 @@ void command_end(int commandID){
     mutex_lock(&usbssdMutex);
     for(i = 0; i < usbssd->channelCount; i++){
         for(j = 0; j < usbssd->chipOfChannel; j++){
-            command = usbssd->channelInfos[i].chipInfos[j].eraseCommands;
+            command = usbssd->channelInfos[i]->chipInfos[j]->eraseCommands;
             pre = NULL;
             while(command){
                 if(command->ID == commandID){
@@ -57,7 +115,7 @@ void command_end(int commandID){
                 pre = command;
                 command = command->next;
             }
-            command = usbssd->channelInfos[i].chipInfos[j].commands;
+            command = usbssd->channelInfos[i]->chipInfos[j]->commands;
             while(command){
                 if(command->ID == commandID){
                     chann = i;
@@ -78,12 +136,12 @@ void command_end(int commandID){
     }else{
         SubRequest_USBSSD *sub = command->subReqs;
         if(pre == NULL){
-            usbssd->channelInfos[chann].chipInfos[chip].commands = command->next;
+            usbssd->channelInfos[chann]->chipInfos[chip]->commands = command->next;
         }else{
             pre->next = command->next;
         }
-        if(usbssd->channelInfos[chann].chipInfos[chip].commandsTail == command){
-            usbssd->channelInfos[chann].chipInfos[chip].commandsTail = pre;
+        if(usbssd->channelInfos[chann]->chipInfos[chip]->commandsTail == command){
+            usbssd->channelInfos[chann]->chipInfos[chip]->commandsTail = pre;
         }
         free_USBSSD(allocator, command);
         subRequest_End(sub);
@@ -92,6 +150,32 @@ void command_end(int commandID){
     mutex_unlock(&usbssdMutex);
 
     allocate_command_USBSSD();
+}
+
+SubRequest_USBSSD *get_SubRequests_Read_USBSSD(int chan, int chip){
+    SubRequest_USBSSD *ret = usbssd->channelInfos[chan]->chipInfos[chip]->rHead;
+    usbssd->channelInfos[chan]->chipInfos[chip]->rHead = ret->next;
+
+    if(ret == usbssd->channelInfos[chan]->chipInfos[chip]->rTail){
+        usbssd->channelInfos[chan]->chipInfos[chip]->rTail = NULL;
+    }
+    
+    ret->pre = NULL;
+    ret->next = NULL;
+    return NULL;
+}
+
+SubRequest_USBSSD *get_SubRequests_Write_USBSSD(int chan, int chip){
+    SubRequest_USBSSD *ret = usbssd->channelInfos[chan]->chipInfos[chip]->wHead;
+    usbssd->channelInfos[chan]->chipInfos[chip]->wHead = ret->next;
+
+    if(ret == usbssd->channelInfos[chan]->chipInfos[chip]->wTail){
+        usbssd->channelInfos[chan]->chipInfos[chip]->wTail = NULL;
+    }
+
+    ret->pre = NULL;
+    ret->next = NULL;
+    return NULL;
 }
 
 void allocate_command_USBSSD(void){
@@ -105,13 +189,13 @@ void allocate_command_USBSSD(void){
 
     for(i = 0; i < usbssd->channelCount; i++){
         int j;
-        for(j = 0; j < usbssd->chipOfChannel && usbssd->channelInfos[i].state == IDLE_HW_CHANNEL_STATE; j++){
-            if(usbssd->channelInfos[i].chipInfos[j].state == IDLE_HW_CHIP_STATE){
+        for(j = 0; j < usbssd->chipOfChannel && usbssd->channelInfos[i]->state == IDEL_HW; j++){
+            if(usbssd->channelInfos[i]->chipInfos[j]->state == IDEL_HW){
                 SubRequest_USBSSD *sub = NULL;
-                if(usbssd->channelInfos[i].chipInfos[j].eraseCommands){
-                    send_command(usbssd->channelInfos[i].chipInfos[j].eraseCommands);
-                    usbssd->channelInfos[i].state = BUSY_HW_CHANNEL_STATE;
-                    usbssd->channelInfos[i].chipInfos[j].state = BUSY_HW_CHIP_STATE;
+                if(usbssd->channelInfos[i]->chipInfos[j]->eraseCommands){
+                    send_command(usbssd->channelInfos[i]->chipInfos[j]->eraseCommands);
+                    usbssd->channelInfos[i]->state = CMD_ERASE_TRANSFERRED;
+                    usbssd->channelInfos[i]->chipInfos[j]->state = CMD_ERASE_TRANSFERRED;
 
                     continue;
                 }
@@ -121,16 +205,23 @@ void allocate_command_USBSSD(void){
                     command->subReqs = sub;
                     command->ID = get_commandID();
                     command->next = NULL;
+                    command->related = NULL;
 
-                    if(usbssd->channelInfos[i].chipInfos[j].commandsTail){
-                        usbssd->channelInfos[i].chipInfos[j].commandsTail->next = command;
+                    if(usbssd->channelInfos[i]->chipInfos[j]->commandsTail){
+                        usbssd->channelInfos[i]->chipInfos[j]->commandsTail->next = command;
                     }else{
-                        usbssd->channelInfos[i].chipInfos[j].commands = command;
+                        usbssd->channelInfos[i]->chipInfos[j]->commands = command;
                     }
-                    usbssd->channelInfos[i].chipInfos[j].commandsTail = command;
+                    usbssd->channelInfos[i]->chipInfos[j]->commandsTail = command;
                     send_command(command);
-                    usbssd->channelInfos[i].state = BUSY_HW_CHANNEL_STATE;
-                    usbssd->channelInfos[i].chipInfos[j].state = BUSY_HW_CHIP_STATE;
+                    if(sub->operation == READ){
+                        usbssd->channelInfos[i]->state = CMD_READ_ADDR_TRANSFERRED;
+                        usbssd->channelInfos[i]->chipInfos[j]->state = CMD_READ_ADDR_TRANSFERRED;
+                    }else{
+                        usbssd->channelInfos[i]->state = CMD_PROGRAM_ADDR_DATE_TRANSFERRED;
+                        usbssd->channelInfos[i]->chipInfos[j]->state = CMD_PROGRAM_ADDR_DATE_TRANSFERRED;
+                    }
+                   
                 }
             }
         }
@@ -159,44 +250,44 @@ void allocate_location(PPN_USBSSD *location){
         usbssd->channelToken = 0;
     }
 
-    location->chip = usbssd->channelInfos[location->channel].chipToken;
-    if(++usbssd->channelInfos[location->channel].chipToken == usbssd->chipOfChannel){
-        usbssd->channelInfos[location->channel].chipToken = 0;
+    location->chip = usbssd->channelInfos[location->channel]->chipToken;
+    if(++usbssd->channelInfos[location->channel]->chipToken == usbssd->chipOfChannel){
+        usbssd->channelInfos[location->channel]->chipToken = 0;
     }
     
-    location->die = usbssd->channelInfos[location->channel].chipInfos[location->chip].dieToken;
-    if(++usbssd->channelInfos[location->channel].chipInfos[location->chip].dieToken == usbssd->dieOfChip){
-        usbssd->channelInfos[location->channel].chipInfos[location->chip].dieToken = 0;
+    location->die = usbssd->channelInfos[location->channel]->chipInfos[location->chip]->dieToken;
+    if(++usbssd->channelInfos[location->channel]->chipInfos[location->chip]->dieToken == usbssd->dieOfChip){
+        usbssd->channelInfos[location->channel]->chipInfos[location->chip]->dieToken = 0;
     }
 
-    location->plane = usbssd->channelInfos[location->channel].chipInfos[location->chip].dieInfos[location->die].planeToken;
-    if(++usbssd->channelInfos[location->channel].chipInfos[location->chip].dieInfos[location->die].planeToken == usbssd->planeOfDie){
-        usbssd->channelInfos[location->channel].chipInfos[location->chip].dieInfos[location->die].planeToken = 0;
+    location->plane = usbssd->channelInfos[location->channel]->chipInfos[location->chip]->dieInfos[location->die]->planeToken;
+    if(++usbssd->channelInfos[location->channel]->chipInfos[location->chip]->dieInfos[location->die]->planeToken == usbssd->planeOfDie){
+        usbssd->channelInfos[location->channel]->chipInfos[location->chip]->dieInfos[location->die]->planeToken = 0;
     }
 
-    usbssd->channelInfos[location->channel].freePageCount--;
-    usbssd->channelInfos[location->channel].validPageCount++;
+    usbssd->channelInfos[location->channel]->freePageCount--;
+    usbssd->channelInfos[location->channel]->validPageCount++;
     
-    usbssd->channelInfos[location->channel].chipInfos[location->chip].freePageCount--;
-    usbssd->channelInfos[location->channel].chipInfos[location->chip].validPageCount++;
+    usbssd->channelInfos[location->channel]->chipInfos[location->chip]->freePageCount--;
+    usbssd->channelInfos[location->channel]->chipInfos[location->chip]->validPageCount++;
 
-    usbssd->channelInfos[location->channel].chipInfos[location->chip].dieInfos[location->die].freePageCount--;
-    usbssd->channelInfos[location->channel].chipInfos[location->chip].dieInfos[location->die].validPageCount++;
+    usbssd->channelInfos[location->channel]->chipInfos[location->chip]->dieInfos[location->die]->freePageCount--;
+    usbssd->channelInfos[location->channel]->chipInfos[location->chip]->dieInfos[location->die]->validPageCount++;
 
-    usbssd->channelInfos[location->channel].chipInfos[location->chip].dieInfos[location->die].planeInfos[location->plane].freePageCount--;
-    usbssd->channelInfos[location->channel].chipInfos[location->chip].dieInfos[location->die].planeInfos[location->plane].validPageCount++;
+    usbssd->channelInfos[location->channel]->chipInfos[location->chip]->dieInfos[location->die]->planeInfos[location->plane]->freePageCount--;
+    usbssd->channelInfos[location->channel]->chipInfos[location->chip]->dieInfos[location->die]->planeInfos[location->plane]->validPageCount++;
     
-    plane = &(usbssd->channelInfos[location->channel].chipInfos[location->chip].dieInfos[location->die].planeInfos[location->plane]);
+    plane = (usbssd->channelInfos[location->channel]->chipInfos[location->chip]->dieInfos[location->die]->planeInfos[location->plane]);
 
     location->block = plane->activeBlock;
-    location->page = plane->blockInfos[location->block].startWrite;
+    location->page = plane->blockInfos[location->block]->startWrite;
 
-    plane->blockInfos[location->block].freePageCount--;
-    plane->blockInfos[location->block].validPageCount++;
+    plane->blockInfos[location->block]->freePageCount--;
+    plane->blockInfos[location->block]->validPageCount++;
 
-    if(plane->blockInfos[location->block].freePageCount == 0){
+    if(plane->blockInfos[location->block]->freePageCount == 0){
         int activeBlock = plane->activeBlock;
-        while(plane->blockInfos[activeBlock].freePageCount != usbssd->pageOfBlock){
+        while(plane->blockInfos[activeBlock]->freePageCount != usbssd->pageOfBlock){
             if(++activeBlock == usbssd->blockOfPlane){
                 activeBlock = 0;
             }
@@ -204,10 +295,10 @@ void allocate_location(PPN_USBSSD *location){
         plane->activeBlock = activeBlock;
     }
 
-    location->page = plane->blockInfos[location->block].startWrite;
-    plane->blockInfos[location->block].startWrite++;
+    location->page = plane->blockInfos[location->block]->startWrite;
+    plane->blockInfos[location->block]->startWrite++;
 
-    if(plane->freePageCount <=  (usbssd->pageOfBlock * usbssd->blockOfPlane / 10)  && plane->eraseUsed == 0){
+    if(plane->freePageCount <=  (usbssd->pageOfBlock * usbssd->blockOfPlane / GC_RATE)  && plane->eraseUsed == 0){
         int targetBlcok = -1;
         int i = 0;
 
@@ -218,10 +309,10 @@ void allocate_location(PPN_USBSSD *location){
         plane->eraseLocation.plane = location->plane;
 
         for(i = 0; i < usbssd->blockOfPlane; ++i){
-            if(plane->blockInfos[i].freePageCount == 0 && \
-            (plane->blockInfos[i].invalidPageCount != 0 && (targetBlcok == -1 || plane->blockInfos[i].invalidPageCount > plane->blockInfos[targetBlcok].invalidPageCount))){
+            if(plane->blockInfos[i]->freePageCount == 0 && \
+            (plane->blockInfos[i]->invalidPageCount != 0 && (targetBlcok == -1 || plane->blockInfos[i]->invalidPageCount > plane->blockInfos[targetBlcok]->invalidPageCount))){
                 targetBlcok = i;
-                if(plane->blockInfos[targetBlcok].invalidPageCount == usbssd->pageOfBlock){
+                if(plane->blockInfos[targetBlcok]->invalidPageCount == usbssd->pageOfBlock){
                     break;
                 }
             }
@@ -235,14 +326,15 @@ void allocate_location(PPN_USBSSD *location){
             command->operation = ERASE;
             command->subReqs = &(plane->eraseLocation);
             command->ID = get_commandID();
+            command->related = NULL;
             command->next = NULL;
-
-            if(usbssd->channelInfos[location->channel].chipInfos[location->chip].eraseCommandsTail){
-                usbssd->channelInfos[location->channel].chipInfos[location->chip].eraseCommandsTail->next = command;
+            
+            if(usbssd->channelInfos[location->channel]->chipInfos[location->chip]->eraseCommandsTail){
+                usbssd->channelInfos[location->channel]->chipInfos[location->chip]->eraseCommandsTail->next = command;
             }else{
-                usbssd->channelInfos[location->channel].chipInfos[location->chip].eraseCommands = command;
+                usbssd->channelInfos[location->channel]->chipInfos[location->chip]->eraseCommands = command;
             }
-            usbssd->channelInfos[location->channel].chipInfos[location->chip].eraseCommandsTail = command;
+            usbssd->channelInfos[location->channel]->chipInfos[location->chip]->eraseCommandsTail = command;
         }
     }
 
@@ -272,20 +364,311 @@ unsigned long long get_PPN_From_Detail_USBSSD(PPN_USBSSD *ppn_USBSSD){
            pages_no_per_block * ppn_USBSSD->block + ppn_USBSSD->page;
 }
 
-void init_Command_USBSSD(void){
+void add_subReqs_to_chip(SubRequest_USBSSD *head){
+    mutex_lock(&usbssdMutex);
+    while(head){
+        SubRequest_USBSSD *add = head;
+        head = head->next;
+
+        add->next = NULL;
+        if(add->operation == READ){
+            add->pre = usbssd->channelInfos[add->location.channel]->chipInfos[add->location.chip]->rTail;
+            usbssd->channelInfos[add->location.channel]->chipInfos[add->location.chip]->rTail = add;
+
+            if(usbssd->channelInfos[add->location.channel]->chipInfos[add->location.chip]->rHead == NULL){
+                usbssd->channelInfos[add->location.channel]->chipInfos[add->location.chip]->rHead = add;
+            }
+        }else{
+            add->pre = usbssd->channelInfos[add->location.channel]->chipInfos[add->location.chip]->wTail;
+            usbssd->channelInfos[add->location.channel]->chipInfos[add->location.chip]->wTail = add;
+
+            if(usbssd->channelInfos[add->location.channel]->chipInfos[add->location.chip]->wHead == NULL){
+                usbssd->channelInfos[add->location.channel]->chipInfos[add->location.chip]->wHead = add;
+            }
+        }
+    }
+
+    mutex_unlock(&usbssdMutex);
+}
+
+int init_Command_USBSSD(void){
     Command_USBSSD *tmp = 0;
     allocator = init_allocator_USBSSD(sizeof(Command_USBSSD), ((void*)(&(tmp->allocator))) - ((void*)tmp));
+    if(allocator == NULL){
+        return -1;
+    }
+    if(setup_USBSSD()){
+        destory_allocator_USBSSD(allocator);
+        return -1;
+    }
     mutex_init(&mapMutex);
     mutex_init(&usbssdMutex);
     mutex_init(&commandIDMutex);
+    return 0;
 }
 
 void destory_Command_USBSSD(void){
+    destory_USBSSD();
     destory_allocator_USBSSD(allocator);
 }
 
-void setup_USBSSD(void){
-    usbssd = NULL;
-    all_capacity_USBSSD = 0;
+int setup_USBSSD(void){
+    int chan = 0, chip = 0, die = 0, plane = 0, block = 0, page = 0;
+    long long i = 0;
+    unsigned char fail = 0;
+    mutex_lock(&usbssdMutex);
+    mutex_lock(&mapMutex);
+    mutex_lock(&commandIDMutex);
+
+    usbssd = kmalloc_wrap(sizeof(*usbssd), GFP_KERNEL);
+    if(usbssd == NULL){
+        return -1;
+    }
+    
     //set usbssd and map
+    usbssd->channelCount = 1;
+    usbssd->chipOfChannel = 1;
+    usbssd->dieOfChip = 1;
+    usbssd->planeOfDie = 1;
+    usbssd->blockOfPlane = 512;
+    usbssd->pageOfBlock = 64;
+    usbssd->subpageOfPage = (2048 >> SECTOR_SHIFT);
+
+    all_capacity_USBSSD = usbssd->channelCount * usbssd->chipOfChannel * usbssd->dieOfChip *
+                          usbssd->planeOfDie * usbssd->blockOfPlane * usbssd->pageOfBlock * usbssd->subpageOfPage * 512;
+    usable_capacity_USBSSD = all_capacity_USBSSD - all_capacity_USBSSD / RESERVE_RATE;
+    mapSize = (usable_capacity_USBSSD + SUB_PAGE_SIZE_USBSSD - 1) / SUB_PAGE_SIZE_USBSSD;
+
+    usbssd->channelToken = 0;
+    usbssd->channelInfos = kmalloc_wrap(sizeof(Channle_USBSSD*) * usbssd->channelCount, GFP_KERNEL);
+    if(usbssd->channelInfos == NULL){
+        fail = 1;
+    }
+    for(chan = 0; chan < usbssd->channelCount && usbssd->channelInfos; ++chan){
+        usbssd->channelInfos[chan] = kmalloc_wrap(sizeof(Channle_USBSSD), GFP_KERNEL);
+        if(usbssd->channelInfos[chan] == NULL){
+            fail = 1;
+            continue;
+        }
+        usbssd->channelInfos[chan]->chipInfos = kmalloc_wrap(sizeof(Chip_USBSSD*) * usbssd->chipOfChannel, GFP_KERNEL);
+        if(usbssd->channelInfos[chan]->chipInfos == NULL){
+            fail = 1;
+            continue;
+        }
+
+        usbssd->channelInfos[chan]->state = IDEL_HW;
+        usbssd->channelInfos[chan]->chipToken = 0;
+        usbssd->channelInfos[chan]->validPageCount = 0;
+        usbssd->channelInfos[chan]->invalidPageCount = 0;
+        usbssd->channelInfos[chan]->freePageCount = usbssd->chipOfChannel * usbssd->dieOfChip * usbssd->planeOfDie * \
+                                                   usbssd->blockOfPlane * usbssd->pageOfBlock;
+        
+
+        for(chip = 0; chip < usbssd->chipOfChannel; ++chip){
+            usbssd->channelInfos[chan]->chipInfos[chip] = kmalloc_wrap(sizeof(Chip_USBSSD), GFP_KERNEL);
+            if(usbssd->channelInfos[chan]->chipInfos[chip] == NULL){
+                fail = 1;
+                continue;
+            }
+            usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos = kmalloc_wrap(sizeof(Die_USBSSD*) * usbssd->dieOfChip, GFP_KERNEL);
+            if(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos == NULL){
+                fail = 1;
+                continue;
+            }
+
+            usbssd->channelInfos[chan]->chipInfos[chip]->rHead = NULL;
+            usbssd->channelInfos[chan]->chipInfos[chip]->rTail = NULL;
+            usbssd->channelInfos[chan]->chipInfos[chip]->wHead = NULL;
+            usbssd->channelInfos[chan]->chipInfos[chip]->wTail = NULL;
+            usbssd->channelInfos[chan]->chipInfos[chip]->incompletedR = NULL;
+
+            usbssd->channelInfos[chan]->chipInfos[chip]->commands = NULL;
+            usbssd->channelInfos[chan]->chipInfos[chip]->commandsTail = NULL;
+            usbssd->channelInfos[chan]->chipInfos[chip]->dieToken = 0;
+            usbssd->channelInfos[chan]->chipInfos[chip]->eraseCommands = NULL;
+            usbssd->channelInfos[chan]->chipInfos[chip]->eraseCommandsTail = NULL;
+            usbssd->channelInfos[chan]->chipInfos[chip]->invalidPageCount = 0;
+            usbssd->channelInfos[chan]->chipInfos[chip]->state = IDEL_HW;
+            usbssd->channelInfos[chan]->chipInfos[chip]->validPageCount = 0;
+
+            usbssd->channelInfos[chan]->chipInfos[chip]->freePageCount =  usbssd->dieOfChip * usbssd->planeOfDie * \
+                                                                        usbssd->blockOfPlane * usbssd->pageOfBlock;
+
+            for(die = 0; die < usbssd->dieOfChip; ++die){
+                usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die] = kmalloc_wrap(sizeof(Die_USBSSD), GFP_KERNEL);
+                if(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die] == NULL){
+                    fail = 1;
+                    continue;
+                }
+                usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos = kmalloc_wrap(sizeof(Plane_USBSSD*) * usbssd->planeOfDie, GFP_KERNEL);
+                if(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos == NULL){
+                    fail = 1;
+                    continue;
+                }
+
+                usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->invalidPageCount = 0;
+                usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeToken = 0;
+                usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->validPageCount = 0;
+
+                usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->freePageCount = usbssd->planeOfDie * \
+                                                                                         usbssd->blockOfPlane * usbssd->pageOfBlock;
+            
+                for(plane = 0; plane < usbssd->planeOfDie; ++plane){
+                    usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane] = kmalloc_wrap(sizeof(Plane_USBSSD), GFP_KERNEL);
+                    if(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane] == NULL){
+                        fail = 1;
+                        continue;
+                    }
+                    usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos = kmalloc_wrap(sizeof(Block_USBSSD*) * usbssd->blockOfPlane, GFP_KERNEL);
+                    if(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos == NULL){
+                        fail = 1;
+                        continue;
+                    }
+
+                    usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->activeBlock = 0;
+                    usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->eraseUsed = 0;
+                    usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->invalidPageCount = 0;
+                    usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->validPageCount = 0;
+
+                    usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->freePageCount = usbssd->blockOfPlane * usbssd->pageOfBlock;
+                
+                    for(block = 0; block < usbssd->blockOfPlane; block++){
+                        usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos[block] = kmalloc_wrap(sizeof(Block_USBSSD), GFP_KERNEL);
+                        if(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos[block] == NULL){
+                            fail = 1;
+                            continue;
+                        }
+                        usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos[block]->pageInfos = kmalloc_wrap(sizeof(Block_USBSSD*) * usbssd->pageOfBlock, GFP_KERNEL);
+                        if(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos[block]->pageInfos == NULL){
+                            fail = 1;
+                            continue;
+                        }
+
+                        usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos[block]->startWrite = 0;
+                        usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos[block]->validPageCount = 0;
+                        usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos[block]->invalidPageCount = 0;
+                        usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos[block]->freePageCount = usbssd->pageOfBlock;
+
+                        for(page = 0; page < usbssd->pageOfBlock; ++page){
+                            usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos[block]->pageInfos[page] = kmalloc_wrap(sizeof(Page_USBSSD), GFP_KERNEL);
+                            if(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos[block]->pageInfos[page] == NULL){
+                                fail = 1;
+                                continue;
+                            }
+
+                            usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos[block]->pageInfos[page]->state = 0;
+                        }
+                    }
+                }
+            }
+
+        }
+    }
+    map = kmalloc_wrap(sizeof(mapEntry_USBSSD) * mapSize, GFP_KERNEL);
+    if(map == NULL){
+        fail = 1;
+    }else{
+        for(i = 0; i < mapSize; i++){
+            map[i].subPage = 0;
+        }
+    }
+    mutex_unlock(&usbssdMutex);
+    mutex_unlock(&mapMutex);
+    mutex_unlock(&commandIDMutex);
+
+    if(fail){
+        destory_USBSSD();
+        return -1;
+    }
+
+    return 0;
+}
+
+void destory_USBSSD(){
+    int chan = 0, chip = 0, die = 0, plane = 0, block = 0, page = 0;
+    mutex_lock(&usbssdMutex);
+    mutex_lock(&mapMutex);
+    mutex_lock(&commandIDMutex);
+
+    if(map){
+        kfree_wrap(map);
+    }
+
+    if(usbssd == NULL){
+        mutex_unlock(&usbssdMutex);
+        mutex_unlock(&mapMutex);
+        mutex_unlock(&commandIDMutex);
+
+        return;
+    }
+
+    for(chan = 0; chan < usbssd->channelCount && usbssd->channelInfos; ++chan){
+        if(usbssd->channelInfos[chan] == NULL){
+            continue;
+        }
+        if(usbssd->channelInfos[chan]->chipInfos == NULL){
+            kfree_wrap(usbssd->channelInfos[chan]);
+            continue;
+        }
+        for(chip = 0; chip < usbssd->chipOfChannel; ++chip){
+            if(usbssd->channelInfos[chan]->chipInfos[chip] == NULL){
+                continue;
+            }
+            if(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos == NULL){
+                kfree_wrap(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos);
+                continue;
+            }
+            for(die = 0; die < usbssd->dieOfChip; ++die){
+                if(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die] == NULL){
+                    continue;
+                }
+                if(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos == NULL){
+                    kfree_wrap(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos);
+                    continue;
+                }
+                for(plane = 0; plane < usbssd->planeOfDie; ++plane){
+                    if(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane] == NULL){
+                        continue;
+                    }
+                    if(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos == NULL){
+                        kfree_wrap(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos);
+                        continue;
+                    }
+                    for(block = 0; block < usbssd->blockOfPlane; block++){
+                        if(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos[block] == NULL){
+                            continue;
+                        }
+                        if(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos[block]->pageInfos == NULL){
+                            kfree_wrap(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos[block]->pageInfos);
+                            continue;
+                        }
+                        for(page = 0; page < usbssd->pageOfBlock; ++page){
+                            if(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos[block]->pageInfos[page] == NULL){
+                                continue;
+                            }
+                            kfree_wrap(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos[block]->pageInfos[page]);
+                        }
+                        kfree_wrap(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos[block]->pageInfos);
+                        kfree_wrap(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos[block]);
+                    }
+                    kfree_wrap(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos);
+                    kfree_wrap(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]);
+                }
+                kfree_wrap(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos);
+                kfree_wrap(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]);
+            }
+            kfree_wrap(usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos);
+            kfree_wrap(usbssd->channelInfos[chan]->chipInfos[chip]);
+        }
+        kfree_wrap(usbssd->channelInfos[chan]->chipInfos);
+        kfree_wrap(usbssd->channelInfos[chan]);
+    }
+    if(usbssd->channelInfos){
+        kfree_wrap(usbssd->channelInfos);
+    }
+    kfree_wrap(usbssd);
+
+    mutex_unlock(&usbssdMutex);
+    mutex_unlock(&mapMutex);
+    mutex_unlock(&commandIDMutex);
 }

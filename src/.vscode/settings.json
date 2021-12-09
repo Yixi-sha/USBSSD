@@ -25,6 +25,7 @@
         "memcheck.h": "c",
         "request.h": "c",
         "allocator.h": "c",
-        "sched.h": "c"
+        "sched.h": "c",
+        "simulatenand.h": "c"
     }
 }

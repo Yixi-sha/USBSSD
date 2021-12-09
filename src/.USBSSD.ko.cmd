@@ -1,0 +1,1 @@
+cmd_/home/ccgo/work/USBSSD/baseline/src/USBSSD.ko := ld -r -m elf_x86_64  --build-id=sha1  -T scripts/module.lds -o /home/ccgo/work/USBSSD/baseline/src/USBSSD.ko /home/ccgo/work/USBSSD/baseline/src/USBSSD.o /home/ccgo/work/USBSSD/baseline/src/USBSSD.mod.o;  true

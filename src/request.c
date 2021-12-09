@@ -110,7 +110,7 @@ allocate_Request_USBSSD_err:
 }
 
 void request_May_End(Request_USBSSD *req){
-    mutex_lock(&req->subMutex);
+    mutex_lock(&req->subMutex); 
     if(--req->restSubreqCount == 0){
         //end req
         free_Request_USBSSD(req);
@@ -118,8 +118,6 @@ void request_May_End(Request_USBSSD *req){
         mutex_unlock(&req->subMutex);
     }
 
-
-    
 }   
 
 void free_Request_USBSSD(Request_USBSSD* addr){
@@ -136,91 +134,105 @@ void destory_Request_USBSSD(void){
     destory_allocator_USBSSD(allocator);
 }
 
-/*void boost_test_signal_thread(){
+void boost_test_signal_thread(){
     Request_USBSSD *ret = allocate_USBSSD(allocator);
-    struct bio_vec bvec;
-    sector_t sector = 100;
-    SubRequest_USBSSD *head = NULL, *tail = NULL;
-    int i = 0;
+    SubRequest_USBSSD *whead = NULL, *wtail = NULL;
+    SubRequest_USBSSD *rhead = NULL, *rtail = NULL;
+    SubRequest_USBSSD *iter = NULL;
+    unsigned long long len = 0;
+    unsigned long long lsa = 0;
+    ret->req = NULL;
+    ret->lsa = 2;
+    ret->len = 16;
+    ret->restSubreqCount = 0;
+    ret->head = NULL;
 
-    bvec.bv_page = NULL;
-    bvec.bv_offset = 0;
-    bvec.bv_len = SUB_PAGE_SIZE_USBSSD;
-    for(i = 0; i < 100; i++){
-        SubRequest_USBSSD *now = allocate_SubRequest_USBSSD(ret, &bvec, sector, 1);
-        unsigned int len = bvec.bv_len; 
+    len = ret->len;
+    lsa = ret->lsa;
+    while(len > 0){
+        unsigned long long lpn, bitMap;
+        unsigned long long subLen = 0;
+        SubRequest_USBSSD *now = NULL;
+        subLen = SUB_PAGE_SIZE_USBSSD >> SECTOR_SHIFT;
+        subLen -= lsa % (SUB_PAGE_SIZE_USBSSD >> SECTOR_SHIFT);
+        if(subLen > len){
+            subLen = len;
+        }
+        bitMap = ~(SUB_PAGE_MASK << subLen);
+        bitMap = bitMap << (lsa % (SUB_PAGE_SIZE_USBSSD >> SECTOR_SHIFT));
+        lpn = lsa / (SUB_PAGE_SIZE_USBSSD >> SECTOR_SHIFT);
+
+        now = allocate_SubRequest_USBSSD(ret, lpn, bitMap, WRITE);
+
+        ret->restSubreqCount++;
+
+        if(!iter){
+            ret->head = now;
+        }else{
+            iter->next = now;
+        }
+        iter = now;
+        iter->next_inter = NULL;
+
         now->pre = NULL;
         now->next = NULL;
-        if(!head){
-            head = now;
-            tail = now;
-        }else{
-            now->pre = tail;
-            tail->next = now;
-            tail = now;
+        if(now->operation == WRITE){
+            if(!whead){
+                whead = now;
+                wtail = now;
+            }else{
+                now->pre = wtail;
+                wtail->next = now;
+                wtail = now;
+            }
+            now = now->relatedSub;
         }
-        sector += len >> SECTOR_SHIFT;
-    }
-    add_To_List_SubRequest_USBSSD(head, tail);
-
-    for(i = 0; i < 100; i++){
-        SubRequest_USBSSD *now = allocate_SubRequest_USBSSD(ret, &bvec, sector, 0);
-        unsigned int len = bvec.bv_len; 
-        now->pre = NULL;
-        now->next = NULL;
-        if(!head){
-            head = now;
-            tail = now;
-        }else{
-            now->pre = tail;
-            tail->next = now;
-            tail = now;
-        }
-        sector += len >> SECTOR_SHIFT;
-    }
-    add_To_List_SubRequest_USBSSD(head, tail);
-
     
+        if(now && now->operation == READ){
+            if(!rhead){
+                rhead = now;
+                rtail = now;
+            }else{
+                now->pre = rtail;
+                rtail->next = now;
+                rtail = now;
+            }
+        }
+        
+        len -= subLen;
+        lsa += subLen;
+    }
 
+    if(whead){
+        add_To_List_SubRequest_USBSSD(whead, wtail);
+    }
+    if(rhead){
+        add_To_List_SubRequest_USBSSD(rhead, rtail);
+    }
+    mutex_init(&ret->subMutex);
+    
 }
 
 static atomic_t testV = ATOMIC_INIT(0);
 
 int thread_fn_test(void *data){
     int i = 0;
-    int f = 0;
-    int dec = 0;
-    int inc = 0;
-    void *ptr[100];
     
     while(!kthread_should_stop()){
         set_current_state(TASK_INTERRUPTIBLE);
-        if(f && dec == 0){
-            schedule();
-        }else if (dec && inc == 0){
+        if(i < 20){
             set_current_state(TASK_RUNNING);
-            if(i > 0){
-                free_USBSSD(allocator, ptr[i - 1]);
-                --i;
-            }
-            if(i == 0 && inc == 0){
-                printk("inc == 0 %d\n", get_kmalloc_count());
+            boost_test_signal_thread();
+            i++;
+            //printk("%d\n", i);
+            if(i == 20){
+                //printk("%d\n", get_kmalloc_count());
                 atomic_inc(&testV);
-                inc = 1;
-            }
-        }else if(inc == 0){
-            set_current_state(TASK_RUNNING);
-            if( i < 20){
-                ptr[i] = allocate_USBSSD(allocator);
-                i++;
-            }else{
-                printk("%d\n", get_kmalloc_count());
-                dec = 1;
             }
         }else{
             schedule();
         }
-        udelay(200);
+        udelay(20);
     }
     return 0;
 }
@@ -242,4 +254,4 @@ void boost_test_requsts(){
     for(i = 0; i < 5; i++){
         kthread_stop(test_task[i]);
     }
-}*/
+}

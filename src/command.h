@@ -4,16 +4,27 @@
 #include "allocator.h"
 #include "sub_request.h"
 
-#define PAGE_SIZE_HW_USBSSD 4096
-#define RESERVE_RATE 0.1
+#define RESERVE_RATE 10
+#define GC_RATE 10
 
 #define ERASE 2
+
+
+#define CMD_PROGRAM_ADDR_DATE_TRANSFERRED 100
+
+#define CMD_READ_ADDR_TRANSFERRED 200
+#define CMD_READ_DATA_TRANSFERRED 201
+
+#define CMD_ERASE_TRANSFERRED 300
+
+#define IDEL_HW 0
 
 typedef struct Command_USBSSD_{
     unsigned char operation;
     void *subReqs;
     struct Command_USBSSD_ *next;
     unsigned long long ID;
+    struct Command_USBSSD_ *related;
 
     Inter_Allocator_USBSSD allocator;
 }Command_USBSSD;
@@ -22,16 +33,12 @@ typedef struct Command_USBSSD_{
 #define VALID_HW_PAGE_STATE 1
 #define INVALID_HW_PAGE_STATE 2
 
-typedef struct Subpage_USBSSD_{
-    unsigned char state;
-    unsigned long long lpn;
-}Subpage_USBSSD;
 
 typedef struct Page_USBSSD_{
     unsigned char state; // if a subpage is valid, it is valid it is valid. 
                         //if all subpage is free, it is valid it is free.
                         //if all subpage is invalid, it is valid it is invalid.
-    Subpage_USBSSD* subpageInfos;
+    unsigned long long lpn;
 }Page_USBSSD;
 
 typedef struct Block_USBSSD_{
@@ -40,7 +47,7 @@ typedef struct Block_USBSSD_{
     unsigned long long invalidPageCount;
 
     unsigned long long startWrite;
-    Page_USBSSD* pageInfos;
+    Page_USBSSD **pageInfos;
 }Block_USBSSD;
 
 typedef struct Plane_USBSSD_{
@@ -52,7 +59,7 @@ typedef struct Plane_USBSSD_{
     PPN_USBSSD eraseLocation;
     unsigned char eraseUsed;
 
-    Block_USBSSD* blockInfos;
+    Block_USBSSD **blockInfos;
 }Plane_USBSSD;
 
 typedef struct Die_USBSSD_{
@@ -62,34 +69,35 @@ typedef struct Die_USBSSD_{
 
     int planeToken;
 
-    Plane_USBSSD* planeInfos;
+    Plane_USBSSD **planeInfos;
 }Die_USBSSD;
 
-
-#define IDLE_HW_CHIP_STATE 0
-#define BUSY_HW_CHIP_STATE 1
-
 typedef struct Chip_USBSSD_{
-    unsigned char state;
+    unsigned int state;
 
     unsigned long long freePageCount;
     unsigned long long validPageCount;
     unsigned long long invalidPageCount;
+
+    Command_USBSSD *incompletedR;
 
     Command_USBSSD *commands;
     Command_USBSSD *commandsTail;
 
     Command_USBSSD *eraseCommands;
     Command_USBSSD *eraseCommandsTail;
+
+    SubRequest_USBSSD *rHead;
+    SubRequest_USBSSD *rTail;
+
+    SubRequest_USBSSD *wHead;
+    SubRequest_USBSSD *wTail;
     int dieToken;
-    Die_USBSSD* dieInfos;
+    Die_USBSSD **dieInfos;
 }Chip_USBSSD;
 
-#define IDLE_HW_CHANNEL_STATE 0
-#define BUSY_HW_CHANNEL_STATE 1
-
 typedef struct Channle_USBSSD_{
-    unsigned char state;
+    unsigned int state;
 
     unsigned long long freePageCount;
     unsigned long long validPageCount;
@@ -97,7 +105,7 @@ typedef struct Channle_USBSSD_{
 
     int chipToken;
 
-    Chip_USBSSD* chipInfos;
+    Chip_USBSSD **chipInfos;
 }Channle_USBSSD;
 
 typedef struct USBSSD_USBSSD_{
@@ -111,7 +119,7 @@ typedef struct USBSSD_USBSSD_{
 
     int channelToken;
 
-    Channle_USBSSD* channelInfos;
+    Channle_USBSSD **channelInfos;
 }USBSSD_USBSSD;
 
 typedef struct mapEntry_USBSSD_{
@@ -119,16 +127,36 @@ typedef struct mapEntry_USBSSD_{
     unsigned long long ppn; // for HW page
 }mapEntry_USBSSD; 
 
-void init_Command_USBSSD(void);
+int init_Command_USBSSD(void);
 void destory_Command_USBSSD(void);
 
 unsigned long long get_capacity_USBSSD(void);
-void setup_USBSSD(void);
+int setup_USBSSD(void);
+void destory_USBSSD(void);
+
+
+void add_subReqs_to_chip(SubRequest_USBSSD *head);
+
 int get_PPN_USBSSD(unsigned long long lpn, mapEntry_USBSSD *ret);
 int get_PPN_Detail_USBSSD(unsigned long long ppn, PPN_USBSSD *ppn_USBSSD);
 void allocate_location(PPN_USBSSD *location);
 unsigned long long get_PPN_From_Detail_USBSSD(PPN_USBSSD *ppn_USBSSD);
 
 void allocate_command_USBSSD(void);
+
+
+typedef struct Operation_CMD_{
+    int CMD;
+    int chan;
+    int chip;
+    int die;
+    int plane;
+    int block;
+    int page;
+    int start;
+    int len;
+    unsigned char *buf;
+}Operation_CMD;
+
 
 #endif

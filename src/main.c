@@ -4,6 +4,10 @@
 #include <linux/blk-mq.h>
 #include <linux/mutex.h>
 
+#include "request.h"
+#include "sub_request.h"
+#include "command.h"
+#include "simulateNAND.h"
 
 #define SIMP_BLKDEV_BYTES            (64 * 1024 * 1024)
 static char simp_blkdev_data[SIMP_BLKDEV_BYTES];
@@ -23,12 +27,12 @@ static blk_status_t USBSSD_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk
     blk_mq_start_request(req);
     
     spin_lock_irq(&USBSSD_lock);
-    printk("req s %lld req len %d\n", blk_rq_pos(req), blk_rq_bytes(req));
+    //printk("req s %lld req len %d\n", blk_rq_pos(req), blk_rq_bytes(req));
     do{
         buffer = bio_data(req->bio);
         len = blk_rq_cur_bytes(req);
         start = blk_rq_pos(req) << SECTOR_SHIFT;
-        printk("the start is %ld len is %ld sec %ld\n", start, len, start >> SECTOR_SHIFT);
+        //printk("the start is %ld len is %ld sec %ld\n", start, len, start >> SECTOR_SHIFT);
         if (rq_data_dir(req) == READ){
             memcpy(buffer, simp_blkdev_data + start, len);
         }else{
@@ -36,7 +40,7 @@ static blk_status_t USBSSD_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk
         }
         err = BLK_STS_OK;
     }while(blk_update_request(req, err, blk_rq_cur_bytes(req)));
-    printk("\n");
+    //printk("\n");
 
     spin_unlock_irq(&USBSSD_lock);
     blk_mq_end_request(req, err);
@@ -99,7 +103,37 @@ static int __init USBSSD_init(void){
     if (ret)
 		goto err2;
 
+    if(init_Request_USBSSD()){
+        goto err3;
+    }
+
+    if(init_SubRequest_USBSSD()){
+        goto err4;
+    }
+
+    if(init_Command_USBSSD()){
+        goto err5;
+    }
+
+    if(init_Simulate_USBSSD()){
+        goto err6;
+    }
+
+    printk("start memcheck %d\n", get_kmalloc_count());
+    //boost_test_signal_thread();
+    boost_test_requsts();
+    printk("memcheck %d\n", get_kmalloc_count());
     return 0;
+
+err6:
+    destory_Command_USBSSD();
+err5:
+    destory_SubRequest_USBSSD();
+err4:
+    destory_Request_USBSSD();
+err3:
+    del_gendisk(USBSSD_gendisk);
+    put_disk(USBSSD_gendisk);
 err2:
     blk_mq_free_tag_set(&tag_set);   
 err1:
@@ -115,6 +149,13 @@ static void __exit USBSSD_exit(void){
     blk_cleanup_queue(USBSSD_gendisk->queue);
     put_disk(USBSSD_gendisk);
     blk_mq_free_tag_set(&tag_set);
+
+    destory_Simulate_USBSSD();
+    destory_Command_USBSSD();
+    destory_SubRequest_USBSSD();
+    destory_Request_USBSSD();
+
+    printk("end memcheck %d\n", get_kmalloc_count());
 }
 
 module_init(USBSSD_init);

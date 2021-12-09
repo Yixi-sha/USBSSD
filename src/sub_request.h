@@ -47,10 +47,6 @@ void subRequest_End(SubRequest_USBSSD *sub);
 void free_SubRequest_USBSSD(SubRequest_USBSSD*);
 
 void add_To_List_SubRequest_USBSSD(SubRequest_USBSSD*, SubRequest_USBSSD*);
-void remove_From_List_SubRequest_USBSSD(SubRequest_USBSSD*);
-
-SubRequest_USBSSD *get_SubRequests_Write_USBSSD(int chan, int chip);
-SubRequest_USBSSD *get_SubRequests_Read_USBSSD(int chan, int chip);
 
 int init_SubRequest_USBSSD(void);
 void destory_SubRequest_USBSSD(void);
