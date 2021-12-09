@@ -1,1 +1,0 @@
-cmd_/home/ccgo/work/USBSSD/baseline/src/Module.symvers := sed 's/ko$$/o/' /home/ccgo/work/USBSSD/baseline/src/modules.order | scripts/mod/modpost -m -a   -o /home/ccgo/work/USBSSD/baseline/src/Module.symvers -e -i Module.symvers   -T -
