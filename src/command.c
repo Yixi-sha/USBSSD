@@ -31,7 +31,16 @@ static void send_write_command(Command_USBSSD *command){
     int start = -1, len = 0;
     int i = 0;
     SubRequest_USBSSD *sub = command->subReqs;
-    unsigned char *buf = sub->buf;
+    unsigned char *buf = NULL;
+    if(command->related){
+        PPN_USBSSD *location = (PPN_USBSSD*)sub;
+        buf = usbssd->channelInfos[location->channel]->chipInfos[location->chip]->dieInfos[location->die]->planeInfos[location->plane]->pageMoveBuf;
+        send_cmd_2_NAND(CMD_PROGRAM_ADDR_DATE_TRANSFERRED, location->channel, location->chip, location->die, \
+        location->plane, location->block, location->page, 0, PAGE_SIZE_USBSSD, buf);
+        return;
+    }else{
+        buf = sub->buf;
+    }
     
     for(i = 0; i < sizeof(sub->bitMap) * 8; i++){
         if(sub->bitMap & (1ULL << i)){
@@ -46,7 +55,7 @@ static void send_write_command(Command_USBSSD *command){
     buf += start;
 
     send_cmd_2_NAND(CMD_PROGRAM_ADDR_DATE_TRANSFERRED, sub->location.channel, sub->location.chip, sub->location.die, \
-    sub->location.plane, sub->location.block, sub->location.page, start, len, sub->buf);
+    sub->location.plane, sub->location.block, sub->location.page, start, len, buf);
 }
 
 static void send_erase_command(Command_USBSSD *command){
@@ -57,32 +66,113 @@ static void send_erase_command(Command_USBSSD *command){
 
 static void send_read_command(Command_USBSSD *command){
     SubRequest_USBSSD *sub = command->subReqs;
+    if(command->related){
+        PPN_USBSSD *location = (PPN_USBSSD *)sub;
+        send_cmd_2_NAND(CMD_READ_ADDR_TRANSFERRED, location->channel, location->chip, location->die, \
+        location->plane, location->block, location->page, 0, 0, NULL);
+        return;
+    }
     send_cmd_2_NAND(CMD_READ_ADDR_TRANSFERRED, sub->location.channel, sub->location.chip, sub->location.die, \
     sub->location.plane, sub->location.block, sub->location.page, 0, 0, NULL);
 }
 
-void recv_signal(int chan, int chip, unsigned char isChan){
+static Command_USBSSD *get_end_CMD(int chan, int chip, int commandID, int CMD){
+    Command_USBSSD *endCommand = NULL,**begin = NULL, **end = NULL;
+    switch (CMD){
+        case CMD_PROGRAM_ADDR_DATE_TRANSFERRED:
+        case CMD_READ_ADDR_TRANSFERRED:
+            begin = &(usbssd->channelInfos[chan]->chipInfos[chip]->commands);
+            end = &(usbssd->channelInfos[chan]->chipInfos[chip]->commandsTail);
+            break;
+        
+        case CMD_READ_DATA_TRANSFERRED:
+            begin = &(usbssd->channelInfos[chan]->chipInfos[chip]->incompletedR);
+            end = &(usbssd->channelInfos[chan]->chipInfos[chip]->incompletedRTail);
+            break;
+        
+        case CMD_ERASE_TRANSFERRED:
+            begin = &(usbssd->channelInfos[chan]->chipInfos[chip]->eraseCommands);
+            end = &(usbssd->channelInfos[chan]->chipInfos[chip]->eraseCommandsTail);
+            break;
+    }
+    if((*begin)->ID == commandID){
+        endCommand = (*begin);
+        (*begin) = endCommand->next;
+
+        if(endCommand == (*end)){
+            (*end) = NULL;
+        }
+    }else{
+        Command_USBSSD *iter = (*begin);
+        while(iter && iter->next->ID != commandID){
+            iter = iter->next;
+        }
+        endCommand = iter->next;
+        iter->next = endCommand->next;
+
+        if(endCommand == (*end)){
+            (*end) = iter;
+        }
+    }
+
+    return endCommand;
+}
+
+void recv_signal(int chan, int chip, unsigned char isChan, int commandID){
+    Command_USBSSD *endCommand = NULL;
     mutex_lock(&usbssdMutex);
     if(isChan){
         usbssd->channelInfos[chan]->state = IDEL_HW;
     }else{
-        
+        switch (usbssd->channelInfos[chan]->chipInfos[chip]->state){
+            case CMD_PROGRAM_ADDR_DATE_TRANSFERRED:
+                usbssd->channelInfos[chan]->chipInfos[chip]->state = IDEL_HW;
+                endCommand = get_end_CMD(chan, chip, commandID, CMD_PROGRAM_ADDR_DATE_TRANSFERRED);
+                break;
+
+            case CMD_READ_ADDR_TRANSFERRED :
+                usbssd->channelInfos[chan]->chipInfos[chip]->state = IDEL_HW;
+                endCommand = get_end_CMD(chan, chip, commandID, CMD_READ_ADDR_TRANSFERRED);
+                endCommand->next = NULL;
+                if(usbssd->channelInfos[chan]->chipInfos[chip]->incompletedR == NULL){
+                    usbssd->channelInfos[chan]->chipInfos[chip]->incompletedR = endCommand;
+                }else{
+                    usbssd->channelInfos[chan]->chipInfos[chip]->incompletedRTail->next = endCommand;
+                }
+                usbssd->channelInfos[chan]->chipInfos[chip]->incompletedRTail = endCommand;
+                endCommand = NULL;
+                break;
+            
+            case CMD_READ_DATA_TRANSFERRED:
+                usbssd->channelInfos[chan]->chipInfos[chip]->state = IDEL_HW;
+                endCommand = get_end_CMD(chan, chip, commandID, CMD_READ_DATA_TRANSFERRED);
+                break;
+            
+            case CMD_ERASE_TRANSFERRED:
+                usbssd->channelInfos[chan]->chipInfos[chip]->state = IDEL_HW;
+                endCommand = get_end_CMD(chan, chip, commandID, CMD_ERASE_TRANSFERRED);
+                break;
+            
+            default:
+                break;
+        }
     }
-    
+
     mutex_unlock(&usbssdMutex);
+    allocate_command_USBSSD();
+
+    if(endCommand && endCommand->related == NULL){
+        SubRequest_USBSSD *sub = endCommand->subReqs;
+        subRequest_End(sub); 
+        free_USBSSD(allocator, endCommand);
+    }else if(endCommand){
+        endCommand->completed = 1;
+    }
 }
 
 static void send_command(Command_USBSSD *command){
     printk("send_command \n");
     switch (command->operation){
-        case ERASE:
-            //send write + read
-            //update
-            //send erase
-            //update meta
-            send_erase_command(command);
-            break;
-        
         case WRITE:
             send_write_command(command);
             break;
@@ -92,64 +182,18 @@ static void send_command(Command_USBSSD *command){
             // send read
             //update meta
             break;
+        
+        case ERASE:
+            //send write + read
+            //update
+            //send erase
+            //update meta
+            send_erase_command(command);
+            break;
+        
         default:
             break;
     }
-}
-
-void command_end(int commandID){
-    Command_USBSSD *command = NULL, *pre = NULL;
-    int chann, chip;
-    int i, j;
-    mutex_lock(&usbssdMutex);
-    for(i = 0; i < usbssd->channelCount; i++){
-        for(j = 0; j < usbssd->chipOfChannel; j++){
-            command = usbssd->channelInfos[i]->chipInfos[j]->eraseCommands;
-            pre = NULL;
-            while(command){
-                if(command->ID == commandID){
-                    chann = i;
-                    chip = j;
-                    break;
-                }
-                pre = command;
-                command = command->next;
-            }
-            command = usbssd->channelInfos[i]->chipInfos[j]->commands;
-            while(command){
-                if(command->ID == commandID){
-                    chann = i;
-                    chip = j;
-                    break;
-                }
-                pre = command;
-                command = command->next;
-            }
-        }
-        if(command){
-            break;
-        }
-    }
-
-    if(command->operation == ERASE){
-
-    }else{
-        SubRequest_USBSSD *sub = command->subReqs;
-        if(pre == NULL){
-            usbssd->channelInfos[chann]->chipInfos[chip]->commands = command->next;
-        }else{
-            pre->next = command->next;
-        }
-        if(usbssd->channelInfos[chann]->chipInfos[chip]->commandsTail == command){
-            usbssd->channelInfos[chann]->chipInfos[chip]->commandsTail = pre;
-        }
-        free_USBSSD(allocator, command);
-        subRequest_End(sub);
-    }
-
-    mutex_unlock(&usbssdMutex);
-
-    allocate_command_USBSSD();
 }
 
 SubRequest_USBSSD *get_SubRequests_Read_USBSSD(int chan, int chip){
@@ -175,6 +219,35 @@ SubRequest_USBSSD *get_SubRequests_Write_USBSSD(int chan, int chip){
 
     ret->pre = NULL;
     ret->next = NULL;
+    return NULL;
+}
+
+static void allocate_erase_write(void){
+    return;
+}
+
+static Command_USBSSD *for_erase(Command_USBSSD *cmd){
+    if(cmd->related){
+        if(cmd->related->completed == 1){
+            if(cmd->related->operation == READ){
+
+            }
+        }else{
+            return NULL;
+        }
+    }
+    return NULL;
+}
+
+static Command_USBSSD *get_Command_USBSSD(int chan, int chip){
+    if(usbssd->channelInfos[chan]->chipInfos[chip]->incompletedR){
+        return usbssd->channelInfos[chan]->chipInfos[chip]->incompletedR;
+    }
+
+    if(usbssd->channelInfos[chan]->chipInfos[chip]->eraseCommands){
+        
+    }
+
     return NULL;
 }
 
@@ -204,8 +277,10 @@ void allocate_command_USBSSD(void){
                     command->operation = sub->operation;
                     command->subReqs = sub;
                     command->ID = get_commandID();
+                    command->completed = 0;
                     command->next = NULL;
                     command->related = NULL;
+                    
 
                     if(usbssd->channelInfos[i]->chipInfos[j]->commandsTail){
                         usbssd->channelInfos[i]->chipInfos[j]->commandsTail->next = command;
@@ -326,8 +401,10 @@ void allocate_location(PPN_USBSSD *location){
             command->operation = ERASE;
             command->subReqs = &(plane->eraseLocation);
             command->ID = get_commandID();
+            command->completed = 0;
             command->related = NULL;
             command->next = NULL;
+            command->EPage = 0;
             
             if(usbssd->channelInfos[location->channel]->chipInfos[location->chip]->eraseCommandsTail){
                 usbssd->channelInfos[location->channel]->chipInfos[location->chip]->eraseCommandsTail->next = command;
@@ -437,7 +514,7 @@ int setup_USBSSD(void){
     all_capacity_USBSSD = usbssd->channelCount * usbssd->chipOfChannel * usbssd->dieOfChip *
                           usbssd->planeOfDie * usbssd->blockOfPlane * usbssd->pageOfBlock * usbssd->subpageOfPage * 512;
     usable_capacity_USBSSD = all_capacity_USBSSD - all_capacity_USBSSD / RESERVE_RATE;
-    mapSize = (usable_capacity_USBSSD + SUB_PAGE_SIZE_USBSSD - 1) / SUB_PAGE_SIZE_USBSSD;
+    mapSize = (usable_capacity_USBSSD + PAGE_SIZE_USBSSD - 1) / PAGE_SIZE_USBSSD;
 
     usbssd->channelToken = 0;
     usbssd->channelInfos = kmalloc_wrap(sizeof(Channle_USBSSD*) * usbssd->channelCount, GFP_KERNEL);
@@ -481,6 +558,7 @@ int setup_USBSSD(void){
             usbssd->channelInfos[chan]->chipInfos[chip]->wHead = NULL;
             usbssd->channelInfos[chan]->chipInfos[chip]->wTail = NULL;
             usbssd->channelInfos[chan]->chipInfos[chip]->incompletedR = NULL;
+            usbssd->channelInfos[chan]->chipInfos[chip]->incompletedRTail = NULL;
 
             usbssd->channelInfos[chan]->chipInfos[chip]->commands = NULL;
             usbssd->channelInfos[chan]->chipInfos[chip]->commandsTail = NULL;

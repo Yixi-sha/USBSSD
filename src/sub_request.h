@@ -8,7 +8,7 @@
 #include <linux/timer.h>
 
 
-#define SUB_PAGE_SIZE_USBSSD 2048// actual map granularity PAGE_SIZE
+#define PAGE_SIZE_USBSSD 2048// actual map granularity PAGE_SIZE
 #define SUB_PAGE_MASK 0xffffffffffffffffULL
 
 typedef struct PPN_USBSSD_{
@@ -27,7 +27,7 @@ typedef struct SubRequest_USBSSD_{
     unsigned long long lpn; // the address
 
     unsigned long long bitMap;
-    unsigned char buf[SUB_PAGE_SIZE_USBSSD];
+    unsigned char buf[PAGE_SIZE_USBSSD];
 
     unsigned long jiffies;
     

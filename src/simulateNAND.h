@@ -4,6 +4,8 @@
 #include <linux/mutex.h>
 #include <linux/timer.h>
 
+#define PAGE_SIZE_USBSSD 2048
+
 
 typedef struct Chip_HW_USBSSD_{
     unsigned int state;

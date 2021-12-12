@@ -32,14 +32,14 @@ Request_USBSSD *allocate_Request_USBSSD(struct request *req){
         unsigned long long lpn, bitMap;
         unsigned long long subLen = 0;
         SubRequest_USBSSD *now = NULL;
-        subLen = SUB_PAGE_SIZE_USBSSD >> SECTOR_SHIFT;
-        subLen -= lsa % (SUB_PAGE_SIZE_USBSSD >> SECTOR_SHIFT);
+        subLen = PAGE_SIZE_USBSSD >> SECTOR_SHIFT;
+        subLen -= lsa % (PAGE_SIZE_USBSSD >> SECTOR_SHIFT);
         if(subLen > len){
             subLen = len;
         }
         bitMap = ~(SUB_PAGE_MASK << subLen);
-        bitMap = bitMap << (lsa % (SUB_PAGE_SIZE_USBSSD >> SECTOR_SHIFT));
-        lpn = lsa / (SUB_PAGE_SIZE_USBSSD >> SECTOR_SHIFT);
+        bitMap = bitMap << (lsa % (PAGE_SIZE_USBSSD >> SECTOR_SHIFT));
+        lpn = lsa / (PAGE_SIZE_USBSSD >> SECTOR_SHIFT);
 
         now = allocate_SubRequest_USBSSD(ret, lpn, bitMap, rq_data_dir(req));
         if(!now){
@@ -153,14 +153,14 @@ void boost_test_signal_thread(){
         unsigned long long lpn, bitMap;
         unsigned long long subLen = 0;
         SubRequest_USBSSD *now = NULL;
-        subLen = SUB_PAGE_SIZE_USBSSD >> SECTOR_SHIFT;
-        subLen -= lsa % (SUB_PAGE_SIZE_USBSSD >> SECTOR_SHIFT);
+        subLen = PAGE_SIZE_USBSSD >> SECTOR_SHIFT;
+        subLen -= lsa % (PAGE_SIZE_USBSSD >> SECTOR_SHIFT);
         if(subLen > len){
             subLen = len;
         }
         bitMap = ~(SUB_PAGE_MASK << subLen);
-        bitMap = bitMap << (lsa % (SUB_PAGE_SIZE_USBSSD >> SECTOR_SHIFT));
-        lpn = lsa / (SUB_PAGE_SIZE_USBSSD >> SECTOR_SHIFT);
+        bitMap = bitMap << (lsa % (PAGE_SIZE_USBSSD >> SECTOR_SHIFT));
+        lpn = lsa / (PAGE_SIZE_USBSSD >> SECTOR_SHIFT);
 
         now = allocate_SubRequest_USBSSD(ret, lpn, bitMap, WRITE);
 

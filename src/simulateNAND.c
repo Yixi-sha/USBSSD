@@ -10,7 +10,7 @@ static const int DIE_NO_PER_CHIP = 1;
 static const int PLANE_NO_PER_DIE = 1;
 static const int BLOCK_NO_PER_PLANE = 512;
 static const int PAGE_NO_PER_BLOCK = 64;
-static const int PAGE_SIZE_USBSSD = 2048;
+
 
 static const int CMD_AND_DATA_TIME = 1;
 static const int PROGRAM_TIME = 10;
