@@ -18,6 +18,17 @@ void add_To_List_SubRequest_USBSSD(SubRequest_USBSSD* h, SubRequest_USBSSD* t){
     allocate_command_USBSSD();  
 }
 
+SubRequest_USBSSD *allocate_SubRequest_for_Erase(){
+    SubRequest_USBSSD *ret = allocate_USBSSD(allocator);
+    return ret;
+}
+
+void free_SubRequest_for_Erase(void* addr){
+    if(addr){
+        free_SubRequest_USBSSD(addr);
+    }
+}
+
 SubRequest_USBSSD *allocate_SubRequest_USBSSD(Request_USBSSD *req, unsigned long long lpn, unsigned long long bitMap, unsigned char operation){
     mapEntry_USBSSD nowMAp;
     SubRequest_USBSSD *ret = allocate_USBSSD(allocator);

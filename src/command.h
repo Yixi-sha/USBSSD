@@ -26,8 +26,12 @@ typedef struct Command_USBSSD_{
     unsigned long long ID;
     struct Command_USBSSD_ *related;
     unsigned char completed;
-    unsigned int EPage;
 
+    union StateEpage{
+        unsigned int state;
+        unsigned int EPage; 
+    }stateEpage;
+    
     Inter_Allocator_USBSSD allocator;
 }Command_USBSSD;
 
@@ -59,7 +63,6 @@ typedef struct Plane_USBSSD_{
 
     unsigned long long activeBlock;
     PPN_USBSSD eraseLocation;
-    unsigned char pageMoveBuf[PAGE_SIZE_USBSSD];
     unsigned char eraseUsed;
 
     Block_USBSSD **blockInfos;

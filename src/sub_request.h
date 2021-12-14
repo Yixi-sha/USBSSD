@@ -42,6 +42,9 @@ typedef struct SubRequest_USBSSD_{
     Inter_Allocator_USBSSD allocator;
 }SubRequest_USBSSD;
 
+SubRequest_USBSSD *allocate_SubRequest_for_Erase(void);
+void free_SubRequest_for_Erase(void*);
+
 SubRequest_USBSSD *allocate_SubRequest_USBSSD(Request_USBSSD *req, unsigned long long lpn, unsigned long long bitMap, unsigned char operation);
 void subRequest_End(SubRequest_USBSSD *sub);
 void free_SubRequest_USBSSD(SubRequest_USBSSD*);
