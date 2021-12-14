@@ -12,6 +12,8 @@ static Allocator_USBSSD *allocator = NULL;
 
 Request_USBSSD *allocate_Request_USBSSD(struct request *req){
     Request_USBSSD *ret = allocate_USBSSD(allocator);
+    unsigned char *buf;
+    unsigned int bufLen = 0;
     SubRequest_USBSSD *whead = NULL, *wtail = NULL;
     SubRequest_USBSSD *rhead = NULL, *rtail = NULL;
     SubRequest_USBSSD *iter = NULL;
@@ -59,6 +61,32 @@ Request_USBSSD *allocate_Request_USBSSD(struct request *req){
         now->pre = NULL;
         now->next = NULL;
         if(now->operation == WRITE){
+            unsigned int copyLen = subLen << SECTOR_SHIFT;
+            unsigned int copyStart = (lsa % (PAGE_SIZE_USBSSD >> SECTOR_SHIFT));
+            copyStart = copyStart << SECTOR_SHIFT;
+            while(copyLen > 0){
+                unsigned int nowCopyLen = 0;
+                if(bufLen == 0){
+                    buf = bio_data(req->bio);
+                    bufLen = blk_rq_cur_bytes(req);
+                }
+                nowCopyLen = bufLen;
+                if(nowCopyLen > copyLen){
+                    nowCopyLen = copyLen;
+                }
+                memcpy(now->buf + copyStart, buf, nowCopyLen);
+                copyLen -= nowCopyLen;
+                copyStart += nowCopyLen;
+
+                bufLen -= nowCopyLen;
+                buf += nowCopyLen;
+                if(bufLen == 0){
+                    blk_status_t err;
+                    err = BLK_STS_OK;
+                    blk_update_request(req, err, blk_rq_cur_bytes(req));
+                }
+            }
+        
             if(!whead){
                 whead = now;
                 wtail = now;
@@ -109,10 +137,63 @@ allocate_Request_USBSSD_err:
 
 }
 
+static int get_read_copy_start_and_len(SubRequest_USBSSD *sub, int *start){
+    int i = 0;
+    int ret = 0;
+    (*start) = -1;
+
+    for(; i < sizeof(sub->bitMap) * 8;++i){
+        if(sub->bitMap & (1ULL << i)){
+            ret += SECTOR_SIZE;
+            if((*start) == -1){
+                (*start) = i * SECTOR_SIZE;
+            }
+        }
+    }
+    return ret;
+}
+
 void request_May_End(Request_USBSSD *req){
     mutex_lock(&req->subMutex); 
     if(--req->restSubreqCount == 0){
-        //end req
+        if(rq_data_dir(req->req) == READ){
+            unsigned char *buf;
+            unsigned int bufLen = 0;
+            SubRequest_USBSSD *sub = req->head;
+            
+            while(sub){
+                int copyStart = 0;
+                int copyLen = 0;
+                copyLen = get_read_copy_start_and_len(sub, &copyStart);
+
+                while(copyLen > 0){
+                    int nowCopyLen = 0;
+                    if(bufLen == 0){
+                        buf = bio_data(req->req->bio);
+                        bufLen = blk_rq_cur_bytes(req->req);
+                    }
+                    nowCopyLen = copyLen;
+                    if(nowCopyLen > bufLen){
+                        nowCopyLen = bufLen;
+                    }
+
+                    memcpy(buf, sub->buf + copyStart, nowCopyLen);
+                    copyLen -= nowCopyLen;
+                    copyStart += nowCopyLen;
+
+                    bufLen -= nowCopyLen;
+                    buf += nowCopyLen;
+                    if(bufLen == 0){
+                        blk_status_t err;
+                        err = BLK_STS_OK;
+                        blk_update_request(req->req, err, blk_rq_cur_bytes(req->req));
+                    }
+                }
+
+                sub = sub->next;
+            }
+        }
+
         free_Request_USBSSD(req);
     }else{
         mutex_unlock(&req->subMutex);

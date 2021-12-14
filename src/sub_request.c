@@ -70,6 +70,13 @@ SubRequest_USBSSD *allocate_SubRequest_USBSSD(Request_USBSSD *req, unsigned long
 
 void subRequest_End(SubRequest_USBSSD *sub){
     if(sub->relatedSub){
+        int i = 0;
+        for(; i < sizeof(sub->bitMap) * 8;++i){
+            if(sub->bitMap & (1ULL << i) && ((sub->relatedSub->bitMap & (1ULL << i)) == 0)){
+                memcpy(sub->relatedSub->buf + (i << SECTOR_SHIFT), sub->buf + (i << SECTOR_SHIFT) , SECTOR_SIZE);
+                sub->relatedSub->bitMap |= (1ULL << i);
+            }
+        }
         sub->relatedSub->relatedSub = NULL;
         free_SubRequest_USBSSD(sub);
     }else{
