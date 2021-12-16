@@ -839,6 +839,7 @@ int setup_USBSSD(void){
 
 void destory_USBSSD(){
     int chan = 0, chip = 0, die = 0, plane = 0, block = 0, page = 0;
+    SubRequest_USBSSD *sub;
     mutex_lock(&usbssdMutex);
     mutex_lock(&mapMutex);
     mutex_lock(&commandIDMutex);
@@ -853,6 +854,18 @@ void destory_USBSSD(){
         mutex_unlock(&commandIDMutex);
 
         return;
+    }
+
+    for(chan = 0; chan < usbssd->channelCount && usbssd->channelInfos; ++chan){
+        for(chip = 0; chip < usbssd->chipOfChannel; ++chip){
+            int count = 0;
+            sub = usbssd->channelInfos[chan]->chipInfos[chip]->wHead;
+            printk("chan %d chip %d\n", chan, chip);
+            while(sub){
+                printk("\t %lld %lld %d\n", sub->lpn, sub->bitMap, count++);
+                sub = sub->next;
+            }
+        }
     }
 
     for(chan = 0; chan < usbssd->channelCount && usbssd->channelInfos; ++chan){

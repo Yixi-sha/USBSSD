@@ -121,7 +121,7 @@ static int __init USBSSD_init(void){
 
     printk("start memcheck %d\n", get_kmalloc_count());
     //boost_test_signal_thread();
-    boost_test_requsts();
+    //boost_test_requsts();
     printk("memcheck %d\n", get_kmalloc_count());
     return 0;
 

@@ -156,7 +156,7 @@ static int get_read_copy_start_and_len(SubRequest_USBSSD *sub, int *start){
 void request_May_End(Request_USBSSD *req){
     mutex_lock(&req->subMutex); 
     if(--req->restSubreqCount == 0){
-        if(rq_data_dir(req->req) == READ){
+        if(req->req && rq_data_dir(req->req) == READ){
             unsigned char *buf;
             unsigned int bufLen = 0;
             SubRequest_USBSSD *sub = req->head;

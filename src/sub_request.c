@@ -15,7 +15,7 @@ void add_To_List_SubRequest_USBSSD(SubRequest_USBSSD* h, SubRequest_USBSSD* t){
         return;
     }
     add_subReqs_to_chip(h);
-    allocate_command_USBSSD();  
+    //allocate_command_USBSSD();  
 }
 
 SubRequest_USBSSD *allocate_SubRequest_for_Erase(){

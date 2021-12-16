@@ -8,7 +8,7 @@ static const int CHANNEL_NO_PER_SSD = 1;
 static const int CHIP_NO_PER_CHANNEL = 1;
 static const int DIE_NO_PER_CHIP = 1;
 static const int PLANE_NO_PER_DIE = 1;
-static const int BLOCK_NO_PER_PLANE = 512;
+static const int BLOCK_NO_PER_PLANE = 256;
 static const int PAGE_NO_PER_BLOCK = 64;
 
 
@@ -62,6 +62,8 @@ static void timer_callback_channel(struct timer_list *unused){
 
 static int write_data(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo, int die, int plane, int block, int page, int start, int len,unsigned char *buf){
     int offset = 0;
+    int i = 0;
+    int nowLen;
     mutex_lock(&chanInfo->Mutex);
     mutex_lock(&chipInfo->Mutex);
 
@@ -75,9 +77,23 @@ static int write_data(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo, int
     chipInfo->state = CMD_PROGRAM_ADDR_DATE_TRANSFERRED;
 
     offset = DIE_SIZE_USBSSD * die + plane * PLANE_SIZE_USBSSD + block * BLOCK_SIZE_USBSSD + page * PAGE_SIZE_USBSSD + start;
-
-    memcpy(chipInfo->data + offset, buf, len);
-
+    
+    while(len){
+        if(chipInfo->pages[i].len < offset){
+            i++;
+            offset -= chipInfo->pages[i].len;
+            continue;
+        }
+        nowLen = len;
+        if(nowLen > (offset + chipInfo->pages[i].len)){
+            nowLen = chipInfo->pages[i].len - offset;
+        }
+        memcpy(chipInfo->pages[i].data + offset, buf, nowLen);
+        offset = 0;
+        len -= nowLen;
+        ++i;
+    }
+    
     chipInfo->preCMDPlane = plane;
     chipInfo->preCMDDie = die;
     chipInfo->preCMDPage = page;
@@ -130,6 +146,8 @@ static int send_Read_addr(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo,
 
 static int send_Read_data(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo, int die, int plane, int block, int page, int start, int len,unsigned char *buf){
     int offset = 0;
+    int i = 0;
+    int nowLen = 0;
     mutex_lock(&chanInfo->Mutex);
     mutex_lock(&chipInfo->Mutex);
 
@@ -146,7 +164,22 @@ static int send_Read_data(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo,
     }    
 
     offset = DIE_SIZE_USBSSD * die + plane * PLANE_SIZE_USBSSD + block * BLOCK_SIZE_USBSSD + page * PAGE_SIZE_USBSSD + start;
-    memcpy(buf, chipInfo->data + offset, len);
+    
+    while(len){
+        if(chipInfo->pages[i].len < offset){
+            i++;
+            offset -= chipInfo->pages[i].len;
+            continue;
+        }
+        nowLen = len;
+        if(nowLen > (offset + chipInfo->pages[i].len)){
+            nowLen = chipInfo->pages[i].len - offset;
+        }
+        memcpy(buf, chipInfo->pages[i].data + offset, nowLen);
+        offset = 0;
+        len -= nowLen;
+        ++i;
+    }
     
     chanInfo->state = CMD_READ_DATA_TRANSFERRED;
     chipInfo->state = CMD_READ_DATA_TRANSFERRED;
@@ -260,25 +293,41 @@ int init_Simulate_USBSSD(void){
         ssd->channels[chan]->chanelN = chan;
         for(chip = 0; chip < ssd->channels[chan]->chipNUM; chip++){
             unsigned int order;
+            unsigned pageCount = 0;
+            int i = 0;
+            long long len = 0;
             ssd->channels[chan]->chips[chip] = kmalloc_wrap(sizeof(Chip_HW_USBSSD), GFP_KERNEL);
             if(ssd->channels[chan]->chips[chip] == NULL){
                 fail = 1;
                 continue;
             }
+
             ssd->channels[chan]->chips[chip]->dataLen = DIE_NO_PER_CHIP * PLANE_NO_PER_DIE * BLOCK_NO_PER_PLANE * PAGE_NO_PER_BLOCK * PAGE_SIZE_USBSSD;
-            order = get_order(ssd->channels[chan]->chips[chip]->dataLen);
-        
-            ssd->channels[chan]->chips[chip]->page = alloc_pages(GFP_KERNEL, order);
-            if(ssd->channels[chan]->chips[chip]->page == NULL){
-                fail = 1;
-                ssd->channels[chan]->chips[chip]->data = NULL;
-                continue;
+            pageCount = (ssd->channels[chan]->chips[chip]->dataLen + PAGE_SIZE - 1) / (PAGE_SIZE);
+            ssd->channels[chan]->chips[chip]->pages = kmalloc_wrap(sizeof(Page_IN_Cache) * pageCount, GFP_KERNEL);
+            
+            len = ssd->channels[chan]->chips[chip]->dataLen;
+            while(len > 0){
+                order = 0;
+                while(1){
+                    //printk("%d\n", order);
+                    ssd->channels[chan]->chips[chip]->pages[i].page = alloc_pages(GFP_KERNEL, order);
+                    if(ssd->channels[chan]->chips[chip]->pages[i].page){
+                        break;
+                    }
+                    order -= 1;
+                }
+                ssd->channels[chan]->chips[chip]->pages[i].order = order;
+                ssd->channels[chan]->chips[chip]->pages[i].data = page_address(ssd->channels[chan]->chips[chip]->pages[i].page);
+                ssd->channels[chan]->chips[chip]->pages[i].len = (1ULL << order) * PAGE_SIZE;
+                len -= ssd->channels[chan]->chips[chip]->pages[i].len;
+                ++i;
             }
-            ssd->channels[chan]->chips[chip]->data = page_address(ssd->channels[chan]->chips[chip]->page);
-            if(ssd->channels[chan]->chips[chip]->data == NULL){
-                fail = 1;
-                continue;
+            while(i < pageCount){
+                ssd->channels[chan]->chips[chip]->pages[i].page = NULL;
+                ++i;
             }
+
             ssd->channels[chan]->chips[chip]->chanelN = chan;
             ssd->channels[chan]->chips[chip]->chipN = chip;
             
@@ -313,16 +362,20 @@ void destory_Simulate_USBSSD(void){
             continue;
         }
         for(chip = 0; chip < ssd->channels[chan]->chipNUM; chip++){
-            unsigned int order;
+            unsigned pageCount = 0;
+            int i = 0;
             if(ssd->channels[chan]->chips[chip] == NULL){
                 continue;
             }
-            if(ssd->channels[chan]->chips[chip]->data == NULL){
-                kfree_wrap(ssd->channels[chan]->chips[chip]);
-                continue;
+            
+            pageCount = (ssd->channels[chan]->chips[chip]->dataLen + PAGE_SIZE - 1) / (PAGE_SIZE);
+            for(i = 0; i < pageCount; i++){
+                if(!ssd->channels[chan]->chips[chip]->pages[i].page)
+                    break;
+                __free_pages(ssd->channels[chan]->chips[chip]->pages[i].page, ssd->channels[chan]->chips[chip]->pages[i].order);
             }
-            order = get_order(ssd->channels[chan]->chips[chip]->dataLen);
-            free_pages((unsigned long)ssd->channels[chan]->chips[chip]->page, order);
+            kfree_wrap(ssd->channels[chan]->chips[chip]->pages);
+            
             kfree_wrap(ssd->channels[chan]->chips[chip]);
         }
         kfree_wrap(ssd->channels[chan]->chips);

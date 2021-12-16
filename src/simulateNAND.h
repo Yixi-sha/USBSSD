@@ -6,6 +6,12 @@
 
 #define PAGE_SIZE_USBSSD 2048
 
+typedef struct Page_IN_Cache_{
+    unsigned int order;
+    struct page *page;
+    unsigned char *data;
+    unsigned long long len;
+}Page_IN_Cache;
 
 typedef struct Chip_HW_USBSSD_{
     unsigned int state;
@@ -13,8 +19,7 @@ typedef struct Chip_HW_USBSSD_{
     struct mutex Mutex;
 
     int dataLen;
-    struct page *page;
-    unsigned char *data;
+    Page_IN_Cache *pages;
     
     int chanelN;
     int chipN;
