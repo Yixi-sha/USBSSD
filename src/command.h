@@ -150,7 +150,7 @@ void allocate_location(PPN_USBSSD *location);
 unsigned long long get_PPN_From_Detail_USBSSD(PPN_USBSSD *ppn_USBSSD);
 
 void allocate_command_USBSSD(void);
-
+void recv_signal(int chan, int chip, unsigned char isChan, unsigned long long commandID);
 
 typedef struct Operation_CMD_{
     int CMD;

@@ -242,7 +242,6 @@ void boost_test_signal_thread(){
         bitMap = ~(SUB_PAGE_MASK << subLen);
         bitMap = bitMap << (lsa % (PAGE_SIZE_USBSSD >> SECTOR_SHIFT));
         lpn = lsa / (PAGE_SIZE_USBSSD >> SECTOR_SHIFT);
-
         now = allocate_SubRequest_USBSSD(ret, lpn, bitMap, WRITE);
 
         ret->restSubreqCount++;

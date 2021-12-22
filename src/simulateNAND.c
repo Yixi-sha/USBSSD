@@ -26,21 +26,21 @@ static void timer_callback_chip(struct timer_list *unused){
     Chip_HW_USBSSD* chipInfo = container_of(unused, Chip_HW_USBSSD, timer);
     mutex_lock(&chipInfo->Mutex);
     switch (chipInfo->state){
-        
         case CMD_READ_ADDR_TRANSFERRED:
-            //send_read_ready()
             break;
         
         case CMD_PROGRAM_ADDR_DATE_TRANSFERRED: 
         case CMD_ERASE_TRANSFERRED:
         case CMD_READ_DATA_TRANSFERRED:
             chipInfo->state = IDEL_HW;
-            //send_channel_idle()
             break;
         default:
             break;
     }
+    printk("chip\n");
+    
     mutex_unlock(&chipInfo->Mutex);
+    recv_signal(chipInfo->chanelN, chipInfo->chipN, 0, chipInfo->ID);
 }
 
 static void timer_callback_channel(struct timer_list *unused){
@@ -51,16 +51,16 @@ static void timer_callback_channel(struct timer_list *unused){
         case CMD_READ_ADDR_TRANSFERRED:
         case CMD_ERASE_TRANSFERRED:
             chanInfo->state = IDEL_HW;
-            //send_channel_idle()
             break;
         default:
             break;
     }
-    
+    printk("chan\n");
     mutex_unlock(&chanInfo->Mutex);
+    recv_signal(chanInfo->chanelN, 0, 1, 0);
 }
 
-static int write_data(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo, int die, int plane, int block, int page, int start, int len,unsigned char *buf){
+static int write_data(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo, int die, int plane, int block, int page, int start, int len,unsigned char *buf, unsigned long long ID){
     int offset = 0;
     int i = 0;
     int nowLen;
@@ -75,6 +75,7 @@ static int write_data(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo, int
     
     chanInfo->state = CMD_PROGRAM_ADDR_DATE_TRANSFERRED;
     chipInfo->state = CMD_PROGRAM_ADDR_DATE_TRANSFERRED;
+    chipInfo->ID = ID;
 
     offset = DIE_SIZE_USBSSD * die + plane * PLANE_SIZE_USBSSD + block * BLOCK_SIZE_USBSSD + page * PAGE_SIZE_USBSSD + start;
     
@@ -88,6 +89,7 @@ static int write_data(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo, int
         if(nowLen > (offset + chipInfo->pages[i].len)){
             nowLen = chipInfo->pages[i].len - offset;
         }
+        printk("offset %d len %d\n", offset, nowLen);
         memcpy(chipInfo->pages[i].data + offset, buf, nowLen);
         offset = 0;
         len -= nowLen;
@@ -107,13 +109,15 @@ static int write_data(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo, int
     chanInfo->timer.expires = jiffies + CMD_AND_DATA_TIME;
     add_timer(&(chanInfo->timer));
 
+    printk("write %d \n", die);
+
     mutex_unlock(&chipInfo->Mutex);
     mutex_unlock(&chanInfo->Mutex);
 
     return 0;
 }
 
-static int send_Read_addr(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo, int die, int plane, int block, int page){
+static int send_Read_addr(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo, int die, int plane, int block, int page, unsigned long long ID){
     mutex_lock(&chanInfo->Mutex);
     mutex_lock(&chipInfo->Mutex);
 
@@ -130,6 +134,7 @@ static int send_Read_addr(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo,
     chipInfo->preCMDDie = die;
     chipInfo->preCMDBlock = block; 
     chipInfo->preCMDPage = page;
+    chipInfo->ID = ID;
 
     timer_setup(&(chipInfo->timer), timer_callback_chip, 0);
     chipInfo->timer.expires = jiffies + CMD_AND_DATA_TIME + READ_TIME;
@@ -144,7 +149,7 @@ static int send_Read_addr(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo,
     return 0;
 }
 
-static int send_Read_data(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo, int die, int plane, int block, int page, int start, int len,unsigned char *buf){
+static int send_Read_data(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo, int die, int plane, int block, int page, int start, int len,unsigned char *buf, unsigned long long ID){
     int offset = 0;
     int i = 0;
     int nowLen = 0;
@@ -183,14 +188,15 @@ static int send_Read_data(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo,
     
     chanInfo->state = CMD_READ_DATA_TRANSFERRED;
     chipInfo->state = CMD_READ_DATA_TRANSFERRED;
+    chipInfo->ID = ID;
 
     timer_setup(&(chipInfo->timer), timer_callback_chip, 0);
     chipInfo->timer.expires = jiffies + CMD_AND_DATA_TIME;
     add_timer(&(chipInfo->timer));
 
-    // timer_setup(&(chanInfo->timer), timer_callback_channel, 0);
-    // chanInfo->timer.expires = jiffies + CMD_AND_DATA_TIME;
-    // add_timer(&(chanInfo->timer));
+    timer_setup(&(chanInfo->timer), timer_callback_channel, 0);
+    chanInfo->timer.expires = jiffies + CMD_AND_DATA_TIME;
+    add_timer(&(chanInfo->timer));
 
     mutex_unlock(&chanInfo->Mutex);
     mutex_unlock(&chipInfo->Mutex);
@@ -198,7 +204,7 @@ static int send_Read_data(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo,
     return 0;
 }
 
-static int send_erase(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo, int die, int plane, int block){
+static int send_erase(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo, int die, int plane, int block, unsigned long long ID){
     mutex_lock(&chanInfo->Mutex);
     mutex_lock(&chipInfo->Mutex);
 
@@ -214,6 +220,7 @@ static int send_erase(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo, int
     chipInfo->preCMDPlane = plane;
     chipInfo->preCMDDie = die;
     chipInfo->preCMDBlock = block; 
+    chipInfo->ID = ID;
 
     timer_setup(&(chipInfo->timer), timer_callback_chip, 0);
     chipInfo->timer.expires = jiffies + CMD_AND_DATA_TIME + ERASE_TIME;
@@ -226,14 +233,15 @@ static int send_erase(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo, int
     mutex_unlock(&chanInfo->Mutex);
     mutex_unlock(&chipInfo->Mutex);
 
+    return 0;
 }
 
 //start is offset of page in
 
-int send_cmd_2_NAND(int CMD, int chan, int chip, int die, int plane, int block, int page, int start, int len,unsigned char *buf){
+int send_cmd_2_NAND(int CMD, int chan, int chip, int die, int plane, int block, int page, int start, int len,unsigned char *buf, unsigned long long ID){
     switch (CMD){
         case CMD_PROGRAM_ADDR_DATE_TRANSFERRED:
-            if(write_data(ssd->channels[chan], ssd->channels[chan]->chips[chip], die, plane, block, page, start, len, buf) == 0){
+            if(write_data(ssd->channels[chan], ssd->channels[chan]->chips[chip], die, plane, block, page, start, len, buf, ID) == 0){
                 //send_success
             }else{
                 //send failure
@@ -241,7 +249,7 @@ int send_cmd_2_NAND(int CMD, int chan, int chip, int die, int plane, int block, 
             break;
         
         case CMD_READ_ADDR_TRANSFERRED:
-            if(send_Read_addr(ssd->channels[chan], ssd->channels[chan]->chips[chip], die, plane, block, page) == 0){
+            if(send_Read_addr(ssd->channels[chan], ssd->channels[chan]->chips[chip], die, plane, block, page, ID) == 0){
                 //send_success
             }else{
                 //send failure
@@ -249,13 +257,14 @@ int send_cmd_2_NAND(int CMD, int chan, int chip, int die, int plane, int block, 
             break;
         
         case CMD_READ_DATA_TRANSFERRED:
-            if(send_Read_data(ssd->channels[chan], ssd->channels[chan]->chips[chip], die, plane, block, page, start, len, buf) == 0){
+            if(send_Read_data(ssd->channels[chan], ssd->channels[chan]->chips[chip], die, plane, block, page, start, len, buf, ID) == 0){
                 //send_success
             }else{
                 //send failure
             }
-
+            break;
         case CMD_ERASE_TRANSFERRED:
+            send_erase(ssd->channels[chan], ssd->channels[chan]->chips[chip], die, plane, block, ID);
             break;
 
         default:

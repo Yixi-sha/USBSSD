@@ -18,6 +18,7 @@ typedef struct Chip_HW_USBSSD_{
     struct timer_list timer;
     struct mutex Mutex;
 
+    unsigned long long ID;
     int dataLen;
     Page_IN_Cache *pages;
     
@@ -49,6 +50,6 @@ typedef struct SSD_HW_USBSSD_{
 
 int init_Simulate_USBSSD(void);
 void destory_Simulate_USBSSD(void);
-int send_cmd_2_NAND(int CMD, int chan, int chip, int die, int plane, int block, int page, int start, int len,unsigned char *buf);
+int send_cmd_2_NAND(int CMD, int chan, int chip, int die, int plane, int block, int page, int start, int len,unsigned char *buf, unsigned long long ID);
 
 #endif

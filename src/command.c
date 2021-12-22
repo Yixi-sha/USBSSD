@@ -46,19 +46,19 @@ static void send_write_command(Command_USBSSD *command){
     buf += start;
 
     send_cmd_2_NAND(CMD_PROGRAM_ADDR_DATE_TRANSFERRED, sub->location.channel, sub->location.chip, sub->location.die, \
-    sub->location.plane, sub->location.block, sub->location.page, start, len, buf);
+    sub->location.plane, sub->location.block, sub->location.page, start, len, buf, command->ID);
 }
 
 static void send_erase_command(Command_USBSSD *command){
     PPN_USBSSD *location = command->subReqs;
     send_cmd_2_NAND(CMD_ERASE_TRANSFERRED, location->channel,location->chip, location->die, \
-    location->plane, location->block, location->page, 0, 0, NULL);
+    location->plane, location->block, location->page, 0, 0, NULL, command->ID);
 }
 
 static void send_read_command(Command_USBSSD *command){
     SubRequest_USBSSD *sub = command->subReqs;
     send_cmd_2_NAND(CMD_READ_ADDR_TRANSFERRED, sub->location.channel, sub->location.chip, sub->location.die, \
-    sub->location.plane, sub->location.block, sub->location.page, 0, 0, NULL);
+    sub->location.plane, sub->location.block, sub->location.page, 0, 0, NULL, command->ID);
 }
 
 static void send_read_command_stage2(Command_USBSSD *command){
@@ -79,7 +79,7 @@ static void send_read_command_stage2(Command_USBSSD *command){
     }
     buf += start;
     send_cmd_2_NAND(CMD_READ_DATA_TRANSFERRED, sub->location.channel, sub->location.chip, sub->location.die, \
-    sub->location.plane, sub->location.block, sub->location.page, start, len, buf);
+    sub->location.plane, sub->location.block, sub->location.page, start, len, buf, command->ID);
 }
 
 static void send_command(Command_USBSSD *command){
@@ -189,27 +189,33 @@ static void update_Map_and_invilate_page(Command_USBSSD *command){
     SubRequest_USBSSD *sub = (SubRequest_USBSSD*)command->subReqs;
     PPN_USBSSD prelocation;
     unsigned long long prePPN;
+    unsigned long long preMap;
     mutex_lock(&mapMutex);
     prePPN = map[sub->lpn].ppn;
+    preMap = map[sub->lpn].subPage;
     map[sub->lpn].subPage = sub->bitMap;
     map[sub->lpn].ppn = get_PPN_From_Detail_USBSSD(&sub->location);
     mutex_unlock(&mapMutex);
-
-    get_PPN_Detail_USBSSD(prePPN, &prelocation);
-    invilate_page(&prelocation);
+    if(preMap){
+        get_PPN_Detail_USBSSD(prePPN, &prelocation);
+        invilate_page(&prelocation);
+    }
+    
 }
 
-void recv_signal(int chan, int chip, unsigned char isChan, int commandID){
+void recv_signal(int chan, int chip, unsigned char isChan, unsigned long long commandID){
     Command_USBSSD *endCommand = NULL;
     mutex_lock(&usbssdMutex);
     if(isChan){
         usbssd->channelInfos[chan]->state = IDEL_HW;
     }else{
+        printk("commandID is %lld\n", commandID);
         switch (usbssd->channelInfos[chan]->chipInfos[chip]->state){
             case CMD_PROGRAM_ADDR_DATE_TRANSFERRED:
                 usbssd->channelInfos[chan]->chipInfos[chip]->state = IDEL_HW;
                 endCommand = get_end_CMD(chan, chip, commandID, CMD_PROGRAM_ADDR_DATE_TRANSFERRED);
                 update_Map_and_invilate_page(endCommand);
+                endCommand->completed = 1;
                 break;
 
             case CMD_READ_ADDR_TRANSFERRED :
@@ -229,27 +235,26 @@ void recv_signal(int chan, int chip, unsigned char isChan, int commandID){
             case CMD_READ_DATA_TRANSFERRED:
                 usbssd->channelInfos[chan]->chipInfos[chip]->state = IDEL_HW;
                 endCommand = get_end_CMD(chan, chip, commandID, CMD_READ_DATA_TRANSFERRED);
+                endCommand->completed = 1;
                 break;
             
             case CMD_ERASE_TRANSFERRED:
                 usbssd->channelInfos[chan]->chipInfos[chip]->state = IDEL_HW;
                 endCommand = get_end_CMD(chan, chip, commandID, CMD_ERASE_TRANSFERRED);
+                endCommand->completed = 1;
                 break;
             
             default:
                 break;
         }
     }
-
     mutex_unlock(&usbssdMutex);
     allocate_command_USBSSD();
-
+    
     if(endCommand && endCommand->related == NULL){
-        SubRequest_USBSSD *sub = endCommand->subReqs;
-        subRequest_End(sub); 
+        // SubRequest_USBSSD *sub = endCommand->subReqs;
+        // subRequest_End(sub); 
         free_USBSSD(allocator, endCommand);
-    }else if(endCommand){
-        endCommand->completed = 1;
     }
 }
 
@@ -625,6 +630,8 @@ void add_subReqs_to_chip(SubRequest_USBSSD *head){
         add->next = NULL;
         if(add->operation == READ){
             add->pre = usbssd->channelInfos[add->location.channel]->chipInfos[add->location.chip]->rTail;
+            if(usbssd->channelInfos[add->location.channel]->chipInfos[add->location.chip]->rTail)
+                usbssd->channelInfos[add->location.channel]->chipInfos[add->location.chip]->rTail->next = add;
             usbssd->channelInfos[add->location.channel]->chipInfos[add->location.chip]->rTail = add;
 
             if(usbssd->channelInfos[add->location.channel]->chipInfos[add->location.chip]->rHead == NULL){
@@ -632,6 +639,8 @@ void add_subReqs_to_chip(SubRequest_USBSSD *head){
             }
         }else{
             add->pre = usbssd->channelInfos[add->location.channel]->chipInfos[add->location.chip]->wTail;
+            if(usbssd->channelInfos[add->location.channel]->chipInfos[add->location.chip]->wTail)
+                usbssd->channelInfos[add->location.channel]->chipInfos[add->location.chip]->wTail->next = add;
             usbssd->channelInfos[add->location.channel]->chipInfos[add->location.chip]->wTail = add;
 
             if(usbssd->channelInfos[add->location.channel]->chipInfos[add->location.chip]->wHead == NULL){
