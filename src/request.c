@@ -53,7 +53,7 @@ Request_USBSSD *allocate_Request_USBSSD(struct request *req){
         if(!iter){
             ret->head = now;
         }else{
-            iter->next = now;
+            iter->next_inter = now;
         }
         iter = now;
         iter->next_inter = NULL;
@@ -153,13 +153,19 @@ static int get_read_copy_start_and_len(SubRequest_USBSSD *sub, int *start){
     return ret;
 }
 
+void boost_test_signal_thread_READ(void);
+
 void request_May_End(Request_USBSSD *req){
+    static int count = 0;
     mutex_lock(&req->subMutex); 
+    printk("%lld \n",req->restSubreqCount);
     if(--req->restSubreqCount == 0){
+        SubRequest_USBSSD *sub = NULL;
+        printk("%lld \n",req->restSubreqCount);
         if(req->req && rq_data_dir(req->req) == READ){
             unsigned char *buf;
             unsigned int bufLen = 0;
-            SubRequest_USBSSD *sub = req->head;
+            sub = req->head;
             
             while(sub){
                 int copyStart = 0;
@@ -190,18 +196,117 @@ void request_May_End(Request_USBSSD *req){
                     }
                 }
 
-                sub = sub->next;
+                sub = sub->next_inter;
             }
+        }else{
+            printk("write end\n");
         }
-
+        sub = req->head;
+        while(sub){
+            SubRequest_USBSSD *now = sub;
+            printk("%d %d\n", now->buf[0], now->buf[PAGE_SIZE_USBSSD - 1]);
+            printk("%d %d %d %d %d %d\n", now->location.channel, now->location.chip, now->location.die, now->location.plane, now->location.block, now->location.page);
+            free_SubRequest_USBSSD(now);
+            sub = sub->next_inter;
+        }
         free_Request_USBSSD(req);
+        if(count <= 2){
+            ++count;
+            boost_test_signal_thread();
+        }else if(count == 3){
+            PPN_USBSSD location;
+            location.channel = 0;
+            location.chip = 0;
+            location.die = 0;
+            location.plane = 0;
+            boost_gc_test_sub(&location);
+        }
     }else{
         mutex_unlock(&req->subMutex);
     }
 
 }   
 
+void boost_test_signal_thread_READ(){
+    Request_USBSSD *ret = allocate_USBSSD(allocator);
+    SubRequest_USBSSD *whead = NULL, *wtail = NULL;
+    SubRequest_USBSSD *rhead = NULL, *rtail = NULL;
+    SubRequest_USBSSD *iter = NULL;
+    unsigned long long len = 0;
+    unsigned long long lsa = 0;
+    ret->req = NULL;
+    ret->lsa = 2;
+    ret->len = 160;
+    ret->restSubreqCount = 0;
+    ret->head = NULL;
+
+    len = ret->len;
+    lsa = ret->lsa;
+    mutex_init(&ret->subMutex);
+    while(len > 0){
+        unsigned long long lpn, bitMap;
+        unsigned long long subLen = 0;
+        SubRequest_USBSSD *now = NULL;
+        subLen = PAGE_SIZE_USBSSD >> SECTOR_SHIFT;
+        subLen -= lsa % (PAGE_SIZE_USBSSD >> SECTOR_SHIFT);
+        if(subLen > len){
+            subLen = len;
+        }
+        bitMap = ~(SUB_PAGE_MASK << subLen);
+        bitMap = bitMap << (lsa % (PAGE_SIZE_USBSSD >> SECTOR_SHIFT));
+        lpn = lsa / (PAGE_SIZE_USBSSD >> SECTOR_SHIFT);
+        now = allocate_SubRequest_USBSSD(ret, lpn, bitMap, READ);
+
+        ret->restSubreqCount++;
+
+        if(!iter){
+            ret->head = now;
+        }else{
+            iter->next_inter = now;
+        }
+        iter = now;
+        iter->next_inter = NULL;
+
+        now->pre = NULL;
+        now->next = NULL;
+        if(now->operation == WRITE){
+            if(!whead){
+                whead = now;
+                wtail = now;
+            }else{
+                now->pre = wtail;
+                wtail->next = now;
+                wtail = now;
+            }
+            now = now->relatedSub;
+        }
+    
+        if(now && now->operation == READ){
+            if(!rhead){
+                rhead = now;
+                rtail = now;
+            }else{
+                now->pre = rtail;
+                rtail->next = now;
+                rtail = now;
+            }
+        }
+        
+        len -= subLen;
+        lsa += subLen;
+    }
+    
+    if(whead){
+        add_To_List_SubRequest_USBSSD(whead, wtail);
+    }
+    if(rhead){
+        add_To_List_SubRequest_USBSSD(rhead, rtail);
+    }
+}
+
+
 void free_Request_USBSSD(Request_USBSSD* addr){
+    mutex_destroy(&addr->subMutex);
     free_USBSSD(allocator, addr);
 }
 
@@ -216,6 +321,8 @@ void destory_Request_USBSSD(void){
 }
 
 void boost_test_signal_thread(){
+    static int count = 0;
+    int i = 0;
     Request_USBSSD *ret = allocate_USBSSD(allocator);
     SubRequest_USBSSD *whead = NULL, *wtail = NULL;
     SubRequest_USBSSD *rhead = NULL, *rtail = NULL;
@@ -224,12 +331,13 @@ void boost_test_signal_thread(){
     unsigned long long lsa = 0;
     ret->req = NULL;
     ret->lsa = 2;
-    ret->len = 16;
+    ret->len = 160;
     ret->restSubreqCount = 0;
     ret->head = NULL;
 
     len = ret->len;
     lsa = ret->lsa;
+    mutex_init(&ret->subMutex);
     while(len > 0){
         unsigned long long lpn, bitMap;
         unsigned long long subLen = 0;
@@ -244,12 +352,16 @@ void boost_test_signal_thread(){
         lpn = lsa / (PAGE_SIZE_USBSSD >> SECTOR_SHIFT);
         now = allocate_SubRequest_USBSSD(ret, lpn, bitMap, WRITE);
 
+        for(i = 0; i < PAGE_SIZE_USBSSD; i++){
+            now->buf[i] = lpn + count * 100;
+        }
+
         ret->restSubreqCount++;
 
         if(!iter){
             ret->head = now;
         }else{
-            iter->next = now;
+            iter->next_inter = now;
         }
         iter = now;
         iter->next_inter = NULL;
@@ -289,8 +401,7 @@ void boost_test_signal_thread(){
     if(rhead){
         add_To_List_SubRequest_USBSSD(rhead, rtail);
     }
-    mutex_init(&ret->subMutex);
-    
+    ++count;
 }
 
 static atomic_t testV = ATOMIC_INIT(0);
@@ -304,9 +415,8 @@ int thread_fn_test(void *data){
             set_current_state(TASK_RUNNING);
             boost_test_signal_thread();
             i++;
-            //printk("%d\n", i);
+            
             if(i == 20){
-                //printk("%d\n", get_kmalloc_count());
                 atomic_inc(&testV);
             }
         }else{

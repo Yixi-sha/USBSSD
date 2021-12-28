@@ -37,7 +37,6 @@ static void timer_callback_chip(struct timer_list *unused){
         default:
             break;
     }
-    printk("chip\n");
     
     mutex_unlock(&chipInfo->Mutex);
     recv_signal(chipInfo->chanelN, chipInfo->chipN, 0, chipInfo->ID);
@@ -50,12 +49,12 @@ static void timer_callback_channel(struct timer_list *unused){
         case CMD_PROGRAM_ADDR_DATE_TRANSFERRED:
         case CMD_READ_ADDR_TRANSFERRED:
         case CMD_ERASE_TRANSFERRED:
+        case CMD_READ_DATA_TRANSFERRED:
             chanInfo->state = IDEL_HW;
             break;
         default:
             break;
     }
-    printk("chan\n");
     mutex_unlock(&chanInfo->Mutex);
     recv_signal(chanInfo->chanelN, 0, 1, 0);
 }
@@ -78,18 +77,18 @@ static int write_data(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo, int
     chipInfo->ID = ID;
 
     offset = DIE_SIZE_USBSSD * die + plane * PLANE_SIZE_USBSSD + block * BLOCK_SIZE_USBSSD + page * PAGE_SIZE_USBSSD + start;
-    
+    //printk("start offset %d len %d\n", offset, nowLen);
     while(len){
-        if(chipInfo->pages[i].len < offset){
-            i++;
+        if(chipInfo->pages[i].len <= offset){
             offset -= chipInfo->pages[i].len;
+            ++i;
             continue;
         }
         nowLen = len;
         if(nowLen > (offset + chipInfo->pages[i].len)){
             nowLen = chipInfo->pages[i].len - offset;
         }
-        printk("offset %d len %d\n", offset, nowLen);
+        //printk("\t offset %d len %d  %lld\n", offset, nowLen, chipInfo->pages[i].len);
         memcpy(chipInfo->pages[i].data + offset, buf, nowLen);
         offset = 0;
         len -= nowLen;
@@ -109,7 +108,6 @@ static int write_data(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo, int
     chanInfo->timer.expires = jiffies + CMD_AND_DATA_TIME;
     add_timer(&(chanInfo->timer));
 
-    printk("write %d \n", die);
 
     mutex_unlock(&chipInfo->Mutex);
     mutex_unlock(&chanInfo->Mutex);
@@ -121,12 +119,13 @@ static int send_Read_addr(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo,
     mutex_lock(&chanInfo->Mutex);
     mutex_lock(&chipInfo->Mutex);
 
+    
     if(chanInfo->state != IDEL_HW || chipInfo->state != IDEL_HW){
         mutex_unlock(&chanInfo->Mutex);
         mutex_unlock(&chipInfo->Mutex);
         return -1;
     }
-
+   
     chanInfo->state = CMD_READ_ADDR_TRANSFERRED;
     chipInfo->state = CMD_READ_ADDR_TRANSFERRED;
 
@@ -136,6 +135,8 @@ static int send_Read_addr(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo,
     chipInfo->preCMDPage = page;
     chipInfo->ID = ID;
 
+    
+    //printk("read\n");
     timer_setup(&(chipInfo->timer), timer_callback_chip, 0);
     chipInfo->timer.expires = jiffies + CMD_AND_DATA_TIME + READ_TIME;
     add_timer(&(chipInfo->timer));
@@ -155,7 +156,7 @@ static int send_Read_data(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo,
     int nowLen = 0;
     mutex_lock(&chanInfo->Mutex);
     mutex_lock(&chipInfo->Mutex);
-
+    
     if(chanInfo->state != IDEL_HW || chipInfo->state != CMD_READ_ADDR_TRANSFERRED){
         mutex_unlock(&chanInfo->Mutex);
         mutex_unlock(&chipInfo->Mutex);
@@ -167,13 +168,13 @@ static int send_Read_data(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo,
         mutex_unlock(&chipInfo->Mutex);
         return -1;
     }    
-
+    
     offset = DIE_SIZE_USBSSD * die + plane * PLANE_SIZE_USBSSD + block * BLOCK_SIZE_USBSSD + page * PAGE_SIZE_USBSSD + start;
     
     while(len){
-        if(chipInfo->pages[i].len < offset){
-            i++;
+        if(chipInfo->pages[i].len <= offset){
             offset -= chipInfo->pages[i].len;
+            ++i;
             continue;
         }
         nowLen = len;
@@ -249,6 +250,7 @@ int send_cmd_2_NAND(int CMD, int chan, int chip, int die, int plane, int block, 
             break;
         
         case CMD_READ_ADDR_TRANSFERRED:
+           
             if(send_Read_addr(ssd->channels[chan], ssd->channels[chan]->chips[chip], die, plane, block, page, ID) == 0){
                 //send_success
             }else{

@@ -27,12 +27,12 @@ static blk_status_t USBSSD_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk
     blk_mq_start_request(req);
     
     spin_lock_irq(&USBSSD_lock);
-    //printk("req s %lld req len %d\n", blk_rq_pos(req), blk_rq_bytes(req));
+    
     do{
         buffer = bio_data(req->bio);
         len = blk_rq_cur_bytes(req);
         start = blk_rq_pos(req) << SECTOR_SHIFT;
-        //printk("the start is %ld len is %ld sec %ld\n", start, len, start >> SECTOR_SHIFT);
+       
         if (rq_data_dir(req) == READ){
             memcpy(buffer, simp_blkdev_data + start, len);
         }else{
@@ -40,7 +40,7 @@ static blk_status_t USBSSD_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk
         }
         err = BLK_STS_OK;
     }while(blk_update_request(req, err, blk_rq_cur_bytes(req)));
-    //printk("\n");
+    
 
     spin_unlock_irq(&USBSSD_lock);
     blk_mq_end_request(req, err);

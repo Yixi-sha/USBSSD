@@ -103,3 +103,7 @@ void destory_SubRequest_USBSSD(void){
     destory_allocator_USBSSD(allocator);
    
 }
+
+void boost_gc_test_sub(PPN_USBSSD* loc){
+    boost_test_gc(loc);
+}

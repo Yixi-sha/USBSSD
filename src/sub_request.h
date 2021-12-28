@@ -54,4 +54,6 @@ void add_To_List_SubRequest_USBSSD(SubRequest_USBSSD*, SubRequest_USBSSD*);
 int init_SubRequest_USBSSD(void);
 void destory_SubRequest_USBSSD(void);
 
+void boost_gc_test_sub(PPN_USBSSD*);
+
 #endif

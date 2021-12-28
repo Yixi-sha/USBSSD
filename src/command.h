@@ -165,5 +165,6 @@ typedef struct Operation_CMD_{
     unsigned char *buf;
 }Operation_CMD;
 
+void boost_test_gc(PPN_USBSSD *location);
 
 #endif
