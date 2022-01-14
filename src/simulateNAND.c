@@ -222,7 +222,7 @@ static int send_erase(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo, int
     chipInfo->preCMDDie = die;
     chipInfo->preCMDBlock = block; 
     chipInfo->ID = ID;
-
+    printk("send_erase\n");
     timer_setup(&(chipInfo->timer), timer_callback_chip, 0);
     chipInfo->timer.expires = jiffies + CMD_AND_DATA_TIME + ERASE_TIME;
     add_timer(&(chipInfo->timer));
@@ -231,9 +231,8 @@ static int send_erase(Channel_HW_USBSSD *chanInfo, Chip_HW_USBSSD* chipInfo, int
     chanInfo->timer.expires = jiffies + CMD_AND_DATA_TIME;
     add_timer(&(chanInfo->timer));
 
-    mutex_unlock(&chanInfo->Mutex);
     mutex_unlock(&chipInfo->Mutex);
-
+    mutex_unlock(&chanInfo->Mutex);
     return 0;
 }
 
@@ -266,6 +265,7 @@ int send_cmd_2_NAND(int CMD, int chan, int chip, int die, int plane, int block, 
             }
             break;
         case CMD_ERASE_TRANSFERRED:
+            
             send_erase(ssd->channels[chan], ssd->channels[chan]->chips[chip], die, plane, block, ID);
             break;
 

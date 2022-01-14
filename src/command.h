@@ -85,6 +85,8 @@ typedef struct Chip_USBSSD_{
     unsigned long long validPageCount;
     unsigned long long invalidPageCount;
 
+    struct task_struct *task;
+    
     Command_USBSSD *incompletedR;
     Command_USBSSD *incompletedRTail;
 
