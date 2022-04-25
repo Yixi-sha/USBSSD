@@ -209,14 +209,14 @@ static void update_Map_and_invilate_page(Command_USBSSD *command){
     
 }
 
-int thread_fn_chip(void *data){
-    int i = 0;
+// int thread_fn_chip(void *data){
+//     int i = 0;
     
-    while(!kthread_should_stop()){
+//     while(!kthread_should_stop()){
         
-    }
-    return 0;
-}
+//     }
+//     return 0;
+// }
 
 void recv_signal(int chan, int chip, unsigned char isChan, unsigned long long commandID){
     Command_USBSSD *endCommand = NULL;
