@@ -163,7 +163,30 @@ static Command_USBSSD *get_end_CMD(int chan, int chip, int commandID, int CMD){
 }
 
 static void erase_block(PPN_USBSSD *location){
+    Plane_USBSSD *plane;
+    int i;
+    usbssd->channelInfos[location->channel]->invalidPageCount -= usbssd->pageOfBlock;
+    usbssd->channelInfos[location->channel]->freePageCount += usbssd->pageOfBlock;
 
+    usbssd->channelInfos[location->channel]->chipInfos[location->chip]->invalidPageCount -= usbssd->pageOfBlock;
+    usbssd->channelInfos[location->channel]->chipInfos[location->chip]->freePageCount += usbssd->pageOfBlock;
+
+    usbssd->channelInfos[location->channel]->chipInfos[location->chip]->dieInfos[location->die]->invalidPageCount -= usbssd->pageOfBlock;
+    usbssd->channelInfos[location->channel]->chipInfos[location->chip]->dieInfos[location->die]->freePageCount += usbssd->pageOfBlock;
+
+    plane = (usbssd->channelInfos[location->channel]->chipInfos[location->chip]->dieInfos[location->die]->planeInfos[location->plane]);
+
+    plane->invalidPageCount -= usbssd->pageOfBlock;
+    plane->freePageCount += usbssd->pageOfBlock;
+
+    plane->blockInfos[location->block]->invalidPageCount = 0;
+    plane->blockInfos[location->block]->freePageCount = usbssd->pageOfBlock;
+    plane->blockInfos[location->block]->validPageCount = 0;
+    plane->blockInfos[location->block]->startWrite = 0;
+
+    for(i = 0; i < usbssd->pageOfBlock; i++){
+        plane->blockInfos[location->block]->pageInfos[i]->state = 0;
+    }
 }
 
 static void invilate_page(PPN_USBSSD *location){
@@ -254,6 +277,7 @@ void recv_signal_back(int chan, int chip, unsigned char isChan, unsigned long lo
                 usbssd->channelInfos[chan]->chipInfos[chip]->state = IDEL_HW;
                 endCommand = get_end_CMD(chan, chip, commandID, CMD_ERASE_TRANSFERRED);
                 location = (PPN_USBSSD *)endCommand->subReqs;
+                erase_block(location);
                 usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[location->die]->planeInfos[location->plane]->eraseUsed = 0;
                 endCommand->completed = 1;
                 break;
