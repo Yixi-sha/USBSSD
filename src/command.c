@@ -162,6 +162,10 @@ static Command_USBSSD *get_end_CMD(int chan, int chip, int commandID, int CMD){
     return endCommand;
 }
 
+static void erase_block(PPN_USBSSD *location){
+
+}
+
 static void invilate_page(PPN_USBSSD *location){
     Plane_USBSSD *plane;
 
@@ -208,6 +212,7 @@ static void update_Map_and_invilate_page(Command_USBSSD *command){
     }
     
 }
+
 
 void recv_signal_back(int chan, int chip, unsigned char isChan, unsigned long long commandID){
     Command_USBSSD *endCommand = NULL;
@@ -263,7 +268,7 @@ void recv_signal_back(int chan, int chip, unsigned char isChan, unsigned long lo
         // printk("end sub\n");
         // return;
     }else if(endCommand && endCommand->operation == ERASE){
-        // printk("erase end\n");
+        printk("erase end\n");
     }else if(endCommand && endCommand->related == NULL){
         SubRequest_USBSSD *sub = endCommand->subReqs;
         subRequest_End(sub); 
@@ -516,8 +521,8 @@ static Command_USBSSD *for_erase(Command_USBSSD *cmd){
             return NULL;
         }
     }else if(targetB->invalidPageCount == usbssd->pageOfBlock){
-        printk("end %d\n", i);
-        return NULL;
+        // printk("end %d\n", i);
+        // return NULL;
         return cmd;
     }
     
@@ -531,10 +536,14 @@ static Command_USBSSD *for_erase(Command_USBSSD *cmd){
     // printk("create read\n");
     // return NULL;
     if(cmd->stateEpage.EPage == usbssd->pageOfBlock){
-        printk("end1 %lld\n", targetB->invalidPageCount);
-        return NULL;
+        // printk("end1 %lld\n", targetB->invalidPageCount);
+        // return NULL;
         if(cmd->related){
             //delete cmd and subreq
+            free_SubRequest_for_Erase(cmd->related->subReqs);
+            cmd->related->subReqs = NULL;
+            free_USBSSD(allocator, cmd->related);
+            cmd->related = NULL;
         }
         return cmd;
     }

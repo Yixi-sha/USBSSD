@@ -209,19 +209,19 @@ void request_May_End(Request_USBSSD *req){
             free_SubRequest_USBSSD(now);
         }
         free_Request_USBSSD(req);
-        if(count <= 2){
+        if(count <= 0){
             ++count;
             boost_test_signal_thread();
             // boost_test_signal_thread_READ();
-        }else if(count == 3){
+        }else if(count == 1){
             PPN_USBSSD location;
             location.channel = 0;
             location.chip = 0;
             location.die = 0;
             location.plane = 0;
             ++count;
-            boost_test_signal_thread_READ();
-            // boost_gc_test_sub(&location);
+            // boost_test_signal_thread_READ();
+            boost_gc_test_sub(&location);
         }
     }else{
         mutex_unlock(&req->subMutex);
