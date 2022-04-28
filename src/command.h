@@ -1,6 +1,10 @@
 #ifndef __COMMAND_USBSSD_H__
 #define __COMMAND_USBSSD_H__
 
+
+#include <linux/workqueue.h>
+
+
 #include "allocator.h"
 #include "sub_request.h"
 
@@ -85,8 +89,14 @@ typedef struct Chip_USBSSD_{
     unsigned long long validPageCount;
     unsigned long long invalidPageCount;
 
-    struct task_struct *task;
+    unsigned int channelNUM;
+    unsigned int chipNUM;
     
+    struct work_struct work;
+    unsigned char isChan;
+    unsigned long long commandID;
+    
+
     Command_USBSSD *incompletedR;
     Command_USBSSD *incompletedRTail;
 
@@ -113,6 +123,10 @@ typedef struct Channle_USBSSD_{
     unsigned long long invalidPageCount;
 
     int chipToken;
+
+    unsigned int channelNUM;
+    unsigned char isChan;
+    struct work_struct work;
 
     Chip_USBSSD **chipInfos;
 }Channle_USBSSD;

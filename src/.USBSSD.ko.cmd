@@ -1,0 +1,1 @@
+cmd_/home/ubuntu/Home/work/USBSSD/src/USBSSD.ko := ld -r  -EL  -maarch64elf  --build-id  -T ./scripts/module-common.lds -T ./arch/arm64/kernel/module.lds -o /home/ubuntu/Home/work/USBSSD/src/USBSSD.ko /home/ubuntu/Home/work/USBSSD/src/USBSSD.o /home/ubuntu/Home/work/USBSSD/src/USBSSD.mod.o;  true

@@ -158,10 +158,9 @@ void boost_test_signal_thread_READ(void);
 void request_May_End(Request_USBSSD *req){
     static int count = 0;
     mutex_lock(&req->subMutex); 
-    printk("%lld \n",req->restSubreqCount);
+    // printk("%lld \n",req->restSubreqCount);
     if(--req->restSubreqCount == 0){
         SubRequest_USBSSD *sub = NULL;
-        printk("%lld \n",req->restSubreqCount);
         if(req->req && rq_data_dir(req->req) == READ){
             unsigned char *buf;
             unsigned int bufLen = 0;
@@ -206,19 +205,22 @@ void request_May_End(Request_USBSSD *req){
             SubRequest_USBSSD *now = sub;
             printk("%d %d\n", now->buf[0], now->buf[PAGE_SIZE_USBSSD - 1]);
             printk("%d %d %d %d %d %d\n", now->location.channel, now->location.chip, now->location.die, now->location.plane, now->location.block, now->location.page);
-            free_SubRequest_USBSSD(now);
             sub = sub->next_inter;
+            free_SubRequest_USBSSD(now);
         }
         free_Request_USBSSD(req);
-        if(count <= 0){
+        if(count <= 2){
             ++count;
-            // boost_test_signal_thread();
-        }else if(count == 1){
+            boost_test_signal_thread();
+            // boost_test_signal_thread_READ();
+        }else if(count == 3){
             PPN_USBSSD location;
             location.channel = 0;
             location.chip = 0;
             location.die = 0;
             location.plane = 0;
+            ++count;
+            boost_test_signal_thread_READ();
             // boost_gc_test_sub(&location);
         }
     }else{
@@ -234,6 +236,8 @@ void boost_test_signal_thread_READ(){
     SubRequest_USBSSD *iter = NULL;
     unsigned long long len = 0;
     unsigned long long lsa = 0;
+
+    printk("bost read\n");
     ret->req = NULL;
     ret->lsa = 2;
     ret->len = 160;
