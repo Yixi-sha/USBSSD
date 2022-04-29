@@ -236,6 +236,75 @@ static void update_Map_and_invilate_page(Command_USBSSD *command){
     
 }
 
+static void check(void){
+    int chan, chip, die, plane, block;
+    mutex_lock(&usbssdMutex);
+    for(chan = 0; chan < usbssd->channelCount; ++chan){
+        int chanV = 0, chanI = 0, chanF = 0;
+        for(chip = 0; chip < usbssd->chipOfChannel; ++chip){
+            int chipV = 0, chipI = 0, chipF = 0;
+            for(die = 0; die < usbssd->dieOfChip; ++die){
+                int dieV = 0, dieI = 0, dieF = 0;
+                for(plane = 0; plane < usbssd->planeOfDie; ++plane){
+                    int planeV = 0, planeI = 0, planeF = 0;
+                    for(block = 0; block < usbssd->blockOfPlane; ++block){
+                        planeF += usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos[block]->freePageCount;
+                        planeI += usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos[block]->invalidPageCount;
+                        planeV += usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->blockInfos[block]->validPageCount;
+                    }
+                    if(planeV != usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->validPageCount){
+                        printk("planeV\n");
+                    }
+                    if(planeF != usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->freePageCount){
+                        printk("planeF\n");
+                    }
+                    if(planeI != usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->planeInfos[plane]->invalidPageCount){
+                        printk("planeI\n");
+                    }
+                    dieF += planeF;
+                    dieI += planeI;
+                    dieV += planeV;
+                }
+                if(dieV != usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->validPageCount){
+                    printk("dieV\n");
+                }
+                if(dieF != usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->freePageCount){
+                    printk("dieF\n");
+                }
+                if(dieI != usbssd->channelInfos[chan]->chipInfos[chip]->dieInfos[die]->invalidPageCount){
+                    printk("dieI\n");
+                }
+                chipF += dieF;
+                chipI += dieI;
+                chipV += dieV;
+            }
+            if(chipV != usbssd->channelInfos[chan]->chipInfos[chip]->validPageCount){
+                printk("dieV\n");
+            }
+            if(chipF != usbssd->channelInfos[chan]->chipInfos[chip]->freePageCount){
+                printk("dieF\n");
+            }
+            if(chipI != usbssd->channelInfos[chan]->chipInfos[chip]->invalidPageCount){
+                printk("dieI\n");
+            }
+            chanF += chipF;
+            chanI += chipI;
+            chanV += chipV;
+        }
+        if(chanV != usbssd->channelInfos[chan]->validPageCount){
+            printk("dieV\n");
+        }
+        if(chanF != usbssd->channelInfos[chan]->freePageCount){
+            printk("dieF\n");
+        }
+        if(chanI != usbssd->channelInfos[chan]->invalidPageCount){
+            printk("dieI\n");
+        }
+    }
+
+    mutex_unlock(&usbssdMutex);
+}
+
 
 void recv_signal_back(int chan, int chip, unsigned char isChan, unsigned long long commandID){
     Command_USBSSD *endCommand = NULL;
@@ -287,12 +356,13 @@ void recv_signal_back(int chan, int chip, unsigned char isChan, unsigned long lo
         }
     }
     mutex_unlock(&usbssdMutex);
+    // check();
     if(endCommand && endCommand->related){
         // allocate_command_USBSSD();
         // printk("end sub\n");
         // return;
     }else if(endCommand && endCommand->operation == ERASE){
-        printk("erase end\n");
+        // printk("erase end\n");
     }else if(endCommand && endCommand->related == NULL){
         SubRequest_USBSSD *sub = endCommand->subReqs;
         subRequest_End(sub); 
@@ -300,6 +370,8 @@ void recv_signal_back(int chan, int chip, unsigned char isChan, unsigned long lo
     }
     allocate_command_USBSSD();
 }
+
+
 
 void recv_signal(int chan, int chip, unsigned char isChan, unsigned long long commandID){
     if(!isChan){

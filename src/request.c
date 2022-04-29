@@ -30,6 +30,7 @@ Request_USBSSD *allocate_Request_USBSSD(struct request *req){
 
     len = ret->len;
     lsa = ret->lsa;
+    printk("lsd %lld %lld %d", ret->lsa, ret->len,rq_data_dir(req) == READ);
     while(len > 0){
         unsigned long long lpn, bitMap;
         unsigned long long subLen = 0;
@@ -121,6 +122,7 @@ Request_USBSSD *allocate_Request_USBSSD(struct request *req){
     }
     mutex_init(&ret->subMutex);
     return ret;
+
 allocate_Request_USBSSD_err:
     while(whead){
         SubRequest_USBSSD *wfree = whead;
@@ -155,8 +157,10 @@ static int get_read_copy_start_and_len(SubRequest_USBSSD *sub, int *start){
 
 void boost_test_signal_thread_READ(void);
 
+void req_end(struct request *req);
+
 void request_May_End(Request_USBSSD *req){
-    static int count = 0;
+    // static int count = 0;
     mutex_lock(&req->subMutex); 
     // printk("%lld \n",req->restSubreqCount);
     if(--req->restSubreqCount == 0){
@@ -198,31 +202,38 @@ void request_May_End(Request_USBSSD *req){
                 sub = sub->next_inter;
             }
         }else{
-            printk("write end\n");
+            // printk("write end\n");
         }
+
+
         sub = req->head;
         while(sub){
             SubRequest_USBSSD *now = sub;
-            printk("%d %d\n", now->buf[0], now->buf[PAGE_SIZE_USBSSD - 1]);
-            printk("%d %d %d %d %d %d\n", now->location.channel, now->location.chip, now->location.die, now->location.plane, now->location.block, now->location.page);
+            if(sub->operation == WRITE){
+                printk("%c %d %c\n", now->buf[0], now->buf[100] ,now->buf[PAGE_SIZE_USBSSD - 1]);
+                printk("%d %d %d %d %d %d\n", now->location.channel, now->location.chip, now->location.die, now->location.plane, now->location.block, now->location.page);
+            }
             sub = sub->next_inter;
             free_SubRequest_USBSSD(now);
         }
-        free_Request_USBSSD(req);
-        if(count <= 0){
-            ++count;
-            boost_test_signal_thread();
-            // boost_test_signal_thread_READ();
-        }else if(count == 1){
-            PPN_USBSSD location;
-            location.channel = 0;
-            location.chip = 0;
-            location.die = 0;
-            location.plane = 0;
-            ++count;
-            // boost_test_signal_thread_READ();
-            boost_gc_test_sub(&location);
+        if(req->req){
+            req_end(req->req);
         }
+        free_Request_USBSSD(req);
+        // if(count <= 0){
+        //     ++count;
+        //     // boost_test_signal_thread();
+        //     // boost_test_signal_thread_READ();
+        // }else if(count == 1){
+        //     PPN_USBSSD location;
+        //     location.channel = 0;
+        //     location.chip = 0;
+        //     location.die = 0;
+        //     location.plane = 0;
+        //     ++count;
+        //     // boost_test_signal_thread_READ();
+        //     // boost_gc_test_sub(&location);
+        // }
     }else{
         mutex_unlock(&req->subMutex);
     }
@@ -334,7 +345,7 @@ void boost_test_signal_thread(){
     unsigned long long len = 0;
     unsigned long long lsa = 0;
     ret->req = NULL;
-    ret->lsa = 2;
+    ret->lsa = 2 + count;
     ret->len = 160;
     ret->restSubreqCount = 0;
     ret->head = NULL;

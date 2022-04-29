@@ -10,7 +10,7 @@
 #include "simulateNAND.h"
 
 #define SIMP_BLKDEV_BYTES            (64 * 1024 * 1024)
-static char simp_blkdev_data[SIMP_BLKDEV_BYTES];
+// static char simp_blkdev_data[SIMP_BLKDEV_BYTES];
 
 static struct blk_mq_tag_set tag_set;
 static int BLOCK_MAJORY = 0;
@@ -20,31 +20,39 @@ static DEFINE_SPINLOCK(USBSSD_lock);
 
 static blk_status_t USBSSD_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_data *bd){
     struct request *req = bd->rq;
-	unsigned long start;
-	unsigned long len;
-    void *buffer = NULL;
-    blk_status_t err;
+	// unsigned long start;
+	// unsigned long len;
+    // void *buffer = NULL;
+    // blk_status_t err;
     blk_mq_start_request(req);
     
     spin_lock_irq(&USBSSD_lock);
     
-    do{
-        buffer = bio_data(req->bio);
-        len = blk_rq_cur_bytes(req);
-        start = blk_rq_pos(req) << SECTOR_SHIFT;
-       
-        if (rq_data_dir(req) == READ){
-            memcpy(buffer, simp_blkdev_data + start, len);
-        }else{
-            memcpy(simp_blkdev_data + start, buffer, len);
-        }
-        err = BLK_STS_OK;
-    }while(blk_update_request(req, err, blk_rq_cur_bytes(req)));
+    // do{
+    //     buffer = bio_data(req->bio);
+    //     len = blk_rq_cur_bytes(req);
+    //     start = blk_rq_pos(req) << SECTOR_SHIFT;
+        
+    //     if (rq_data_dir(req) == READ){
+    //         memcpy(buffer, simp_blkdev_data + start, len);
+    //     }else{
+    //         memcpy(simp_blkdev_data + start, buffer, len);
+    //     }
+    //     err = BLK_STS_OK;
+    // }while(blk_update_request(req, err, blk_rq_cur_bytes(req)));
     
 
+    // spin_unlock_irq(&USBSSD_lock);
+    // blk_mq_end_request(req, err);
+    allocate_Request_USBSSD(req);
+
+    return BLK_STS_OK;
+}
+
+void req_end(struct request *req){
+    blk_status_t err = BLK_STS_OK;
     spin_unlock_irq(&USBSSD_lock);
     blk_mq_end_request(req, err);
-    return BLK_STS_OK;
 }
 
 static const struct blk_mq_ops USBSSD_mq_ops = {
@@ -76,7 +84,7 @@ static int USBSSD_register_disk(void){
     disk->queue = q;
     USBSSD_gendisk = disk;
 
-    set_capacity(USBSSD_gendisk, SIMP_BLKDEV_BYTES >> 9); // number of sector
+    set_capacity(USBSSD_gendisk, get_capacity_USBSSD() >> 9); // number of sector
     add_disk(disk);
 
     return 0;
@@ -86,23 +94,7 @@ static int __init USBSSD_init(void){
     int ret = 0;
     ret = -EBUSY;
 
-    BLOCK_MAJORY = register_blkdev(0, "USBSSD"); 
-    if(BLOCK_MAJORY < 0){
-        goto err;
-    }
-    tag_set.ops = &USBSSD_mq_ops;
-    tag_set.nr_hw_queues = 1;
-	tag_set.queue_depth = 16;
-    tag_set.numa_node = NUMA_NO_NODE;
-    tag_set.flags = BLK_MQ_F_SHOULD_MERGE;
-    ret = blk_mq_alloc_tag_set(&tag_set);
-    if (ret)
-		goto err1;
-
-    ret = USBSSD_register_disk();
-    if (ret)
-		goto err2;
-
+    
     if(init_Request_USBSSD()){
         goto err3;
     }
@@ -119,12 +111,36 @@ static int __init USBSSD_init(void){
         goto err6;
     }
 
-    printk("start memcheck %d\n", get_kmalloc_count());
-    boost_test_signal_thread();
-    //boost_test_requsts();
-    printk("memcheck %d\n", get_kmalloc_count());
+    
+
+    BLOCK_MAJORY = register_blkdev(0, "USBSSD"); 
+    if(BLOCK_MAJORY < 0){
+        goto err;
+    }
+    tag_set.ops = &USBSSD_mq_ops;
+    tag_set.nr_hw_queues = 1;
+	tag_set.queue_depth = 1;
+    tag_set.numa_node = NUMA_NO_NODE;
+    tag_set.flags = BLK_MQ_F_SHOULD_MERGE;
+    ret = blk_mq_alloc_tag_set(&tag_set);
+    if (ret)
+		goto err1;
+
+    ret = USBSSD_register_disk();
+    if (ret)
+		goto err2;
+    
+    // printk("start memcheck %d\n", get_kmalloc_count());
+    // boost_test_signal_thread();
+    // boost_test_requsts();
+    // printk("memcheck %d\n", get_kmalloc_count());
+
     return 0;
 
+err2:
+    blk_mq_free_tag_set(&tag_set);   
+err1:
+    unregister_blkdev(BLOCK_MAJORY, "USBSSD");
 err6:
     destory_Command_USBSSD();
 err5:
@@ -134,10 +150,6 @@ err4:
 err3:
     del_gendisk(USBSSD_gendisk);
     put_disk(USBSSD_gendisk);
-err2:
-    blk_mq_free_tag_set(&tag_set);   
-err1:
-    unregister_blkdev(BLOCK_MAJORY, "USBSSD");
 err:
     return ret;
 }

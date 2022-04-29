@@ -13,9 +13,9 @@ static const int PAGE_NO_PER_BLOCK = 64;
 
 
 static const int CMD_AND_DATA_TIME = 1;
-static const int PROGRAM_TIME = 10;
-static const int READ_TIME = 5;
-static const int ERASE_TIME = 30;
+static const int PROGRAM_TIME = 1;
+static const int READ_TIME = 1;
+static const int ERASE_TIME = 1;
 
 #define BLOCK_SIZE_USBSSD (PAGE_SIZE_USBSSD * PAGE_NO_PER_BLOCK)
 #define PLANE_SIZE_USBSSD (BLOCK_SIZE_USBSSD * BLOCK_NO_PER_PLANE)
