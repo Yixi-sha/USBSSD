@@ -1,4 +1,4 @@
-#include <stddef.h>
+// #include <stddef.h>
 #include "sub_request.h"
 #include "request.h"
 
@@ -6,7 +6,7 @@
 #include <linux/sched.h>
 #include <linux/kthread.h>
 #include <linux/delay.h>
-
+#include <linux/blk-mq.h>
 
 static Allocator_USBSSD *allocator = NULL;
 
@@ -30,7 +30,7 @@ Request_USBSSD *allocate_Request_USBSSD(struct request *req){
 
     len = ret->len;
     lsa = ret->lsa;
-    printk("lsd %lld %lld %d", ret->lsa, ret->len,rq_data_dir(req) == READ);
+    // printk("lsd %lld %lld %d", ret->lsa, ret->len,rq_data_dir(req) == READ);
     while(len > 0){
         unsigned long long lpn, bitMap;
         unsigned long long subLen = 0;
@@ -109,7 +109,6 @@ Request_USBSSD *allocate_Request_USBSSD(struct request *req){
                 rtail = now;
             }
         }
-
         len -= subLen;
         lsa += subLen;
     }

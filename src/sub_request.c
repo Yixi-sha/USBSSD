@@ -1,5 +1,5 @@
 #include "sub_request.h"
-#include <stddef.h>
+// #include <stddef.h>
 #include "command.h"
 
 
@@ -55,7 +55,7 @@ SubRequest_USBSSD *allocate_SubRequest_USBSSD(Request_USBSSD *req, unsigned long
     if(ret->operation == READ){
         get_PPN_Detail_USBSSD(nowMAp.ppn, &ret->location);
     }else{
-        allocate_location(&ret->location);
+        allocate_location_for_plane(&ret->location, lpn);
     }
 
     if(ret->operation == WRITE && ((ret->bitMap & nowMAp.subPage) != nowMAp.subPage)){

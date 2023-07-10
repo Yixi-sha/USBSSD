@@ -162,11 +162,14 @@ void add_subReqs_to_chip(SubRequest_USBSSD *head);
 
 int get_PPN_USBSSD(unsigned long long lpn, mapEntry_USBSSD *ret);
 int get_PPN_Detail_USBSSD(unsigned long long ppn, PPN_USBSSD *ppn_USBSSD);
-void allocate_location(PPN_USBSSD *location);
+void allocate_location_for_plane(PPN_USBSSD *location, unsigned long long lpn);
 unsigned long long get_PPN_From_Detail_USBSSD(PPN_USBSSD *ppn_USBSSD);
 
 void allocate_command_USBSSD(void);
 void recv_signal(int chan, int chip, unsigned char isChan, unsigned long long commandID);
+
+void allocate_location_in_plane(PPN_USBSSD *location);
+void check_and_create_gc(PPN_USBSSD *location);
 
 typedef struct Operation_CMD_{
     int CMD;
