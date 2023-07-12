@@ -208,9 +208,9 @@ void request_May_End(Request_USBSSD *req){
         sub = req->head;
         while(sub){
             SubRequest_USBSSD *now = sub;
-            if(sub->operation == WRITE){
-                printk("%c %d %c\n", now->buf[0], now->buf[100] ,now->buf[PAGE_SIZE_USBSSD - 1]);
-                printk("%d %d %d %d %d %d\n", now->location.channel, now->location.chip, now->location.die, now->location.plane, now->location.block, now->location.page);
+            if(0 && sub->operation == WRITE){
+                // printk("%c %d %c\n", now->buf[0], now->buf[100] ,now->buf[PAGE_SIZE_USBSSD - 1]);
+                printk("%c %d %d %d %d %d %d\n", now->operation, now->location.channel, now->location.chip, now->location.die, now->location.plane, now->location.block, now->location.page);
             }
             sub = sub->next_inter;
             free_SubRequest_USBSSD(now);
@@ -219,6 +219,9 @@ void request_May_End(Request_USBSSD *req){
             req_end(req->req);
         }
         free_Request_USBSSD(req);
+        // if(count == 0){
+
+        // }
         // if(count <= 0){
         //     ++count;
         //     // boost_test_signal_thread();

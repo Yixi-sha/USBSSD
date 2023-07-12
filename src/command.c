@@ -6,6 +6,7 @@ static unsigned long long all_capacity_USBSSD = 0;
 static unsigned long long usable_capacity_USBSSD = 0;
 static USBSSD_USBSSD *usbssd = NULL;
 static struct mutex usbssdMutex;
+static struct mutex usbssdListMutex;
 static mapEntry_USBSSD *map;
 static unsigned long long mapSize = 0;
 static struct mutex mapMutex;
@@ -240,6 +241,7 @@ static void update_Map_and_invilate_page(Command_USBSSD *command){
 static void check(void){
     int chan, chip, die, plane, block;
     mutex_lock(&usbssdMutex);
+    mutex_lock(&usbssdListMutex);
     for(chan = 0; chan < usbssd->channelCount; ++chan){
         int chanV = 0, chanI = 0, chanF = 0;
         for(chip = 0; chip < usbssd->chipOfChannel; ++chip){
@@ -302,7 +304,7 @@ static void check(void){
             printk("dieI\n");
         }
     }
-
+    mutex_unlock(&usbssdListMutex);
     mutex_unlock(&usbssdMutex);
 }
 
@@ -367,7 +369,9 @@ void recv_signal_back(int chan, int chip, unsigned char isChan, unsigned long lo
     }else if(endCommand && endCommand->related == NULL){
         SubRequest_USBSSD *sub = endCommand->subReqs;
         if(sub->operation == WRITE){
+            mutex_lock(&usbssdMutex);
             check_and_create_gc(&(sub->location));
+            mutex_unlock(&usbssdMutex);
         }
         subRequest_End(sub); 
         free_USBSSD(allocator, endCommand);
@@ -398,9 +402,12 @@ static void work_func_recv_signal(struct work_struct *work){
 }
 
 SubRequest_USBSSD *get_SubRequests_Read_USBSSD(int chan, int chip){
-    SubRequest_USBSSD *ret = usbssd->channelInfos[chan]->chipInfos[chip]->rHead;
+    SubRequest_USBSSD *ret;
+    mutex_lock(&usbssdListMutex);
+    ret = usbssd->channelInfos[chan]->chipInfos[chip]->rHead;
     
     if(ret == NULL){
+        mutex_unlock(&usbssdListMutex);
         return NULL;
     }
     usbssd->channelInfos[chan]->chipInfos[chip]->rHead = ret->next;
@@ -408,7 +415,8 @@ SubRequest_USBSSD *get_SubRequests_Read_USBSSD(int chan, int chip){
     if(ret == usbssd->channelInfos[chan]->chipInfos[chip]->rTail){
         usbssd->channelInfos[chan]->chipInfos[chip]->rTail = NULL;
     }
-    
+    mutex_unlock(&usbssdListMutex);
+
     ret->pre = NULL;
     ret->next = NULL;
     
@@ -416,9 +424,12 @@ SubRequest_USBSSD *get_SubRequests_Read_USBSSD(int chan, int chip){
 }
 
 SubRequest_USBSSD *get_SubRequests_Write_USBSSD(int chan, int chip){
-    SubRequest_USBSSD *iter = usbssd->channelInfos[chan]->chipInfos[chip]->wHead, *ret = NULL;
-    
+    SubRequest_USBSSD *iter = NULL, *ret = NULL;
+    mutex_lock(&usbssdListMutex);
+    iter = usbssd->channelInfos[chan]->chipInfos[chip]->wHead;
+    ret = NULL;
     if(iter == NULL){
+        mutex_unlock(&usbssdListMutex);
         return NULL;
     }
     if(iter->relatedSub == NULL){
@@ -436,6 +447,7 @@ SubRequest_USBSSD *get_SubRequests_Write_USBSSD(int chan, int chip){
             ret = iter->next;
             iter->next = ret->next;
         }else{
+            mutex_unlock(&usbssdListMutex);
             return NULL;
         }
     }
@@ -443,7 +455,7 @@ SubRequest_USBSSD *get_SubRequests_Write_USBSSD(int chan, int chip){
     if(ret == usbssd->channelInfos[chan]->chipInfos[chip]->wTail){
         usbssd->channelInfos[chan]->chipInfos[chip]->wTail = NULL;
     }
-
+    mutex_unlock(&usbssdListMutex);
     ret->pre = NULL;
     ret->next = NULL;
     return ret;
@@ -780,10 +792,6 @@ void allocate_location_for_plane(PPN_USBSSD *location, unsigned long long lpn){
     location->die =  (lpn / (usbssd->channelCount * usbssd->chipOfChannel)) % usbssd->dieOfChip;
     location->plane = (lpn / (usbssd->channelCount * usbssd->chipOfChannel * usbssd->dieOfChip)) % usbssd->planeOfDie;
     
-    // mutex_lock(&usbssdMutex);
-    // allocate_location_in_plane(location, 0);
-
-    // mutex_unlock(&usbssdMutex);
 }
 
 unsigned long long page_no_per_channel, page_no_per_chip, page_no_per_die, page_no_per_plane, pages_no_per_block, pages_no_per_block;
@@ -810,7 +818,7 @@ unsigned long long get_PPN_From_Detail_USBSSD(PPN_USBSSD *ppn_USBSSD){
 }
 
 void add_subReqs_to_chip(SubRequest_USBSSD *head){
-    mutex_lock(&usbssdMutex);
+    mutex_lock(&usbssdListMutex);
 
     while(head){
         SubRequest_USBSSD *add = head;
@@ -838,7 +846,7 @@ void add_subReqs_to_chip(SubRequest_USBSSD *head){
         }
     }
 
-    mutex_unlock(&usbssdMutex);
+    mutex_unlock(&usbssdListMutex);
 }
 
 int init_Command_USBSSD(void){
@@ -847,13 +855,16 @@ int init_Command_USBSSD(void){
     if(allocator == NULL){
         return -1;
     }
+    mutex_init(&mapMutex);
+    mutex_init(&usbssdMutex);
+    mutex_init(&usbssdListMutex);
+    mutex_init(&commandIDMutex);
+
     if(setup_USBSSD()){
         destory_allocator_USBSSD(allocator);
         return -1;
     }
-    mutex_init(&mapMutex);
-    mutex_init(&usbssdMutex);
-    mutex_init(&commandIDMutex);
+    
     return 0;
 }
 
@@ -867,6 +878,7 @@ int setup_USBSSD(void){
     long long i = 0;
     unsigned char fail = 0;
     mutex_lock(&usbssdMutex);
+    mutex_lock(&usbssdListMutex);
     mutex_lock(&mapMutex);
     mutex_lock(&commandIDMutex);
 
@@ -1036,6 +1048,7 @@ int setup_USBSSD(void){
             map[i].subPage = 0;
         }
     }
+    mutex_unlock(&usbssdListMutex);
     mutex_unlock(&usbssdMutex);
     mutex_unlock(&mapMutex);
     mutex_unlock(&commandIDMutex);
@@ -1051,6 +1064,7 @@ int setup_USBSSD(void){
 void destory_USBSSD(){
     int chan = 0, chip = 0, die = 0, plane = 0, block = 0, page = 0;
     SubRequest_USBSSD *sub;
+    mutex_lock(&usbssdListMutex);
     mutex_lock(&usbssdMutex);
     mutex_lock(&mapMutex);
     mutex_lock(&commandIDMutex);
@@ -1147,6 +1161,7 @@ void destory_USBSSD(){
     kfree_wrap(usbssd);
 
     mutex_unlock(&usbssdMutex);
+    mutex_unlock(&usbssdListMutex);
     mutex_unlock(&mapMutex);
     mutex_unlock(&commandIDMutex);
 }
